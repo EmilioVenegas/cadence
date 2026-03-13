@@ -1,0 +1,13 @@
+# Data (raw survey files)
+data/simpleMHAS.sav
+
+# Models (binary weights and large trajectory manifold)
+models/*.pth
+models/*.csv
+
+# Plots (generated images)
+plots/*.png
+
+# Python cache
+__pycache__/
+*.pyc

@@ -106,16 +106,49 @@ a_k(t) = \frac{v_k(t) - v_k(t-\Delta t)}{\Delta t}
 \vec{V}_{interp} = \frac{\sum_{i} \exp\left(-\frac{d_i^2}{2\sigma^2}\right) \vec{v}_i}{\sum_{i} \exp\left(-\frac{d_i^2}{2\sigma^2}\right)}
 ```
 
+## 📂 Project Structure
+
+```
+latent_velocity/
+│
+├── data/
+│   ├── simpleMHAS.sav               # Raw MHAS data (Ignored in .gitignore)
+│   └── frailty_index_data.csv       # Phase 1: Curated 34-item fractional FI matrix
+│
+├── engine/
+│   ├── _paths.py                    # Centralized path resolution
+│   ├── prepare_frailty_data.py      # Phase 1: MICE imputation & explicit filtering
+│   ├── train_vae.py                 # Phase 2 & 7: Inverse-Variance Weighted β-VAE
+│   ├── extract_velocity.py          # Phase 3 & 4: GP Interpolation & Analytical Derivative
+│   ├── clinical_validation.py       # Phase 5: LMM Validation & Cox PH Survival Models
+│   ├── vector_field_inference.py    # Phase 9: KD-Tree Construction & Single-Point Inference
+│   └── diagnostic_tests.py          # Per-domain reconstruction & variance diagnostics
+│
+├── models/
+│   ├── beta_vae_model.pth           # Frozen encoder/decoder weights
+│   └── latent_velocity_trajectory.csv # The 5-million point historical manifold
+│
+├── plots/                           # Phase 6 & 8 outputs (Streamplots, Heatmaps, KM Curves)
+│   ├── visualize_streamplot.py
+│   ├── visualize_tsne.py
+│   ├── visualize_gp.py
+│   └── analyze_heatmap.py
+│
+└── README.md
+```
+
 ## 🛠 Usage
 
 To execute the full LAVA pipeline:
 
 ```bash
-cd latent_velocity
+cd latent_velocity/engine
 python prepare_frailty_data.py
 python train_vae.py
 python extract_velocity.py
 python clinical_validation.py
+
+cd ../plots
 python visualize_streamplot.py
 ```
 
@@ -131,4 +164,4 @@ python visualize_streamplot.py
 - matplotlib
 - seaborn
 - scipy
-    
+
