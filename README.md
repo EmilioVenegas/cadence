@@ -3,11 +3,11 @@
 
 LAVA is a production-grade diagnostic framework designed to disentangle the complex, non-linear trajectories of human aging. By projecting multi-domain clinical deficits into a continuous latent manifold, LAVA moves beyond static "snapshots" of health to measure the instantaneous velocity of biological aging.
 
-## � Dataset: Mexican Health and Aging Study (MHAS)
+## Dataset: Mexican Health and Aging Study (MHAS)
 
 The LAVA reference manifold is constructed using longitudinal data from the MHAS cohort (26,463 patients spanning up to 23 years). The engine processes highly irregular survey intervals into a unified, continuous vector field of aging for the Mexican and Hispanic demographic.
 
-## �🚀 Pipeline Overview
+## 🚀 Pipeline Overview
 
 The LAVA framework operates through five distinct modular stages:
 
