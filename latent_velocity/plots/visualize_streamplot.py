@@ -45,22 +45,46 @@ def load_data_advanced(traj_file):
     
     return df, death_coords_df, z_cols, v_cols, a_cols
 
-def build_interpolated_grid(Z_data, V_data, grid_res=60, k_neighbors=50, sigma=0.5, mask_threshold=0.0005):
+def build_interpolated_grid(Z_data, V_data, grid_res=80, k_neighbors=50,
+                            sigma=None, mask_quantile=0.90,
+                            clip_pct=(2, 98)):
     """
     Generalized grid interpolator for any 2D coordinate system and 2D vector field.
+    
+    Parameters
+    ----------
+    sigma : float or None
+        Gaussian kernel bandwidth.  If None, auto-set to the median NN distance.
+    mask_quantile : float  (0-1)
+        Grid points whose mean-k-NN distance exceeds this quantile of the
+        *data-to-data* distances are masked out (no data support).
+    clip_pct : tuple (lo, hi)
+        Percentiles used to define grid bounds, avoiding sparse tails.
     """
-    x_min, x_max = Z_data[:, 0].min(), Z_data[:, 0].max()
-    y_min, y_max = Z_data[:, 1].min(), Z_data[:, 1].max()
+    x_lo, x_hi = np.percentile(Z_data[:, 0], clip_pct)
+    y_lo, y_hi = np.percentile(Z_data[:, 1], clip_pct)
     
-    # Margin
-    x_margin = (x_max - x_min) * 0.05
-    y_margin = (y_max - y_min) * 0.05
+    # Small margin
+    x_margin = (x_hi - x_lo) * 0.05
+    y_margin = (y_hi - y_lo) * 0.05
     
-    XX, YY = np.meshgrid(np.linspace(x_min - x_margin, x_max + x_margin, grid_res),
-                         np.linspace(y_min - y_margin, y_max + y_margin, grid_res))
+    XX, YY = np.meshgrid(np.linspace(x_lo - x_margin, x_hi + x_margin, grid_res),
+                         np.linspace(y_lo - y_margin, y_hi + y_margin, grid_res))
     
     grid_points = np.c_[XX.ravel(), YY.ravel()]
     tree = KDTree(Z_data)
+    
+    # --- Auto-calibrate mask_threshold from the data itself ---
+    data_dists, _ = tree.query(Z_data, k=k_neighbors)
+    data_mean_dists = data_dists.mean(axis=1)
+    mask_threshold = np.percentile(data_mean_dists, mask_quantile * 100)
+    
+    if sigma is None:
+        sigma = np.median(data_mean_dists)
+    
+    print(f"  Grid interpolation: sigma={sigma:.4f}, "
+          f"mask_threshold={mask_threshold:.4f} "
+          f"(q{mask_quantile*100:.0f} of data NN dists)")
     
     U = np.zeros(grid_points.shape[0])
     W = np.zeros(grid_points.shape[0])
@@ -68,7 +92,7 @@ def build_interpolated_grid(Z_data, V_data, grid_res=60, k_neighbors=50, sigma=0
     for i, pt in enumerate(grid_points):
         dist, ind = tree.query(pt.reshape(1, -1), k=k_neighbors)
         
-        # Masking
+        # Masking: skip grid cells far from any data
         if np.mean(dist[0]) > mask_threshold:
             U[i], W[i] = np.nan, np.nan
             continue
@@ -76,6 +100,11 @@ def build_interpolated_grid(Z_data, V_data, grid_res=60, k_neighbors=50, sigma=0
         weights = np.exp(-(dist[0]**2) / (2 * (sigma**2)))
         v_interp = np.average(V_data[ind[0]], axis=0, weights=weights)
         U[i], W[i] = v_interp[0], v_interp[1]
+        
+    n_valid = np.isfinite(U).sum()
+    n_total = len(U)
+    print(f"  Grid coverage: {n_valid}/{n_total} cells "
+          f"({100*n_valid/n_total:.1f}%)")
         
     return XX, YY, U.reshape(grid_res, grid_res), W.reshape(grid_res, grid_res)
 
@@ -94,6 +123,10 @@ def plot_custom_streamplot(XX, YY, U, W, Z_pts, D_pts, title, xlabel, ylabel, fi
     strm = plt.streamplot(XX, YY, U, W, color=speed, linewidth=1.5, cmap='plasma', density=1.5)
     plt.colorbar(strm.lines, label='Velocity Magnitude')
     
+    # Zoom axes to the grid region (where streamlines live)
+    plt.xlim(XX.min(), XX.max())
+    plt.ylim(YY.min(), YY.max())
+    
     plt.title(title, fontsize=15, fontweight='bold')
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -105,6 +138,39 @@ def plot_custom_streamplot(XX, YY, U, W, Z_pts, D_pts, title, xlabel, ylabel, fi
     print(f"Saved plot to {out_path}")
     plt.close()
 
+def plot_speed_heatmap(Z_pts, speed, D_pts, title, xlabel, ylabel, filename,
+                       grid_res=80, clip_pct=(2, 98)):
+    """Plot a 2D heatmap of scalar speed (velocity magnitude) using hex-binning."""
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    x_lo, x_hi = np.percentile(Z_pts[:, 0], clip_pct)
+    y_lo, y_hi = np.percentile(Z_pts[:, 1], clip_pct)
+    mask = ((Z_pts[:, 0] >= x_lo) & (Z_pts[:, 0] <= x_hi) &
+            (Z_pts[:, 1] >= y_lo) & (Z_pts[:, 1] <= y_hi))
+    
+    hb = ax.hexbin(Z_pts[mask, 0], Z_pts[mask, 1], C=speed[mask],
+                   gridsize=40, cmap='inferno', reduce_C_function=np.median,
+                   mincnt=5)
+    plt.colorbar(hb, ax=ax, label='Median Aging Speed')
+    
+    if len(D_pts) > 0:
+        dm = ((D_pts[:, 0] >= x_lo) & (D_pts[:, 0] <= x_hi) &
+              (D_pts[:, 1] >= y_lo) & (D_pts[:, 1] <= y_hi))
+        ax.scatter(D_pts[dm, 0], D_pts[dm, 1], color='cyan', marker='x',
+                   s=4, alpha=0.15, label='Death')
+        ax.legend(loc='upper right')
+    
+    ax.set_title(title, fontsize=15, fontweight='bold')
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.grid(True, alpha=0.15)
+    
+    out_path = str(PLOTS_DIR / filename)
+    plt.savefig(out_path, dpi=200, bbox_inches='tight')
+    print(f"Saved plot to {out_path}")
+    plt.close()
+
+
 def main():
     traj_file = str(MODELS_DIR / 'latent_velocity_trajectory.csv')
         
@@ -113,38 +179,156 @@ def main():
     # Subsample for tree construction speed
     df_sub = df.sample(n=min(100000, len(df)), random_state=42)
     
-    # --- Option 1: True Disentanglement Plot (z3: Physical vs z7: Cognitive) ---
-    print("\nGenerating Option 1: Disentanglement Plot (z3 vs z7)...")
+    # ---------------------------------------------------------------
+    # Plot 1 — Disentanglement Flow (z3: Physical vs z7: Cognitive)
+    #   Interpretation: reveals whether physical frailty and cognitive
+    #   decline proceed in tandem or on independent trajectories.
+    # ---------------------------------------------------------------
+    print("\n[1/8] Disentanglement Plot (z3 vs z7)...")
     Z1 = df_sub[['z_mean_3', 'z_mean_7']].values
     V1 = df_sub[['v_3', 'v_7']].values
     D1 = df_death[['z_mean_3', 'z_mean_7']].values
     
-    XX1, YY1, U1, W1 = build_interpolated_grid(Z1, V1, mask_threshold=0.01)
+    XX1, YY1, U1, W1 = build_interpolated_grid(Z1, V1)
     plot_custom_streamplot(XX1, YY1, U1, W1, Z1, D1, 
                            "Latent Disentanglement Flow: Physical vs Cognitive",
                            "Latent Dimension 3 (Physical/General Frailty)",
                            "Latent Dimension 7 (Cognitive State)",
                            "streamplot_disentanglement.png")
     
-    # --- Option 2: Phase Portrait (z3 Position vs v3 Velocity) ---
-    print("\nGenerating Option 2: Phase Portrait (z3 vs v3)...")
+    # ---------------------------------------------------------------
+    # Plot 2 — Phase Portrait (z3 Position vs v3 Velocity)
+    #   Interpretation: classical dynamical-systems portrait; spirals
+    #   indicate oscillation, fixed points indicate equilibria, saddle
+    #   separatrices indicate tipping points.
+    # ---------------------------------------------------------------
+    print("\n[2/8] Phase Portrait (z3 vs v3)...")
     Z2 = df_sub[['z_mean_3', 'v_3']].values
     V2 = df_sub[['v_3', 'a_3']].values
     D2 = df_death[['z_mean_3', 'v_3']].values
     
-    # Scale correction for Phase Portrait interpolation
-    scale_y = 1000
-    Z2_scaled = Z2 * np.array([1, scale_y])
-    
-    XX2, YY2, U2, W2 = build_interpolated_grid(Z2_scaled, V2, mask_threshold=0.02)
-    # Unscale YY for plotting
-    YY2_unscaled = YY2 / scale_y
-    
-    plot_custom_streamplot(XX2, YY2_unscaled, U2, W2, Z2, D2,
+    XX2, YY2, U2, W2 = build_interpolated_grid(Z2, V2)
+    plot_custom_streamplot(XX2, YY2, U2, W2, Z2, D2,
                            "Biological Phase Portrait: State vs Momentum",
                            "Latent Position (z3: Physical State)",
                            "Latent Velocity (v3: Decline Speed)",
                            "streamplot_phase_portrait.png")
+    
+    # ---------------------------------------------------------------
+    # Plot 3 — PCA-Projected Global Velocity Field
+    #   Interpretation: projects all 8 latent dims and all 8 velocity
+    #   components into the top-2 principal components, giving a
+    #   single summary field of overall aging flow.
+    # ---------------------------------------------------------------
+    print("\n[3/8] PCA-Projected Global Velocity Field...")
+    from sklearn.decomposition import PCA
+    
+    Z_full = df_sub[[f'z_mean_{k}' for k in range(8)]].values
+    V_full = df_sub[[f'v_{k}' for k in range(8)]].values
+    
+    pca = PCA(n_components=2, random_state=42)
+    Z_pca = pca.fit_transform(Z_full)
+    V_pca = V_full @ pca.components_.T  # Project velocities into same PCA space
+    
+    Z_death_full = df_death[[f'z_mean_{k}' for k in range(8)]].values
+    D_pca = pca.transform(Z_death_full)
+    
+    var_expl = pca.explained_variance_ratio_ * 100
+    
+    XX3, YY3, U3, W3 = build_interpolated_grid(Z_pca, V_pca)
+    plot_custom_streamplot(XX3, YY3, U3, W3, Z_pca, D_pca,
+                           "Global Aging Flow (PCA Projection of 8D Manifold)",
+                           f"PC-1 ({var_expl[0]:.1f}% var)",
+                           f"PC-2 ({var_expl[1]:.1f}% var)",
+                           "streamplot_pca_global.png")
+    
+    # ---------------------------------------------------------------
+    # Plot 4 — Dominant Decline Axis Phase Portrait (z7)
+    #   Dim 7 has the strongest velocity signal and a negative mean
+    #   velocity.  Its phase portrait reveals whether cognitive/global
+    #   decline is a one-way slide or has restoring dynamics.
+    # ---------------------------------------------------------------
+    print("\n[4/8] Dominant Decline Phase Portrait (z7 vs v7)...")
+    Z4 = df_sub[['z_mean_7', 'v_7']].values
+    V4 = df_sub[['v_7', 'a_7']].values
+    D4 = df_death[['z_mean_7', 'v_7']].values
+    
+    XX4, YY4, U4, W4 = build_interpolated_grid(Z4, V4)
+    plot_custom_streamplot(XX4, YY4, U4, W4, Z4, D4,
+                           "Dominant Decline Phase Portrait (Dim 7)",
+                           "Latent Position (z7: Global Decline Axis)",
+                           "Latent Velocity (v7: Decline Rate)",
+                           "streamplot_phase_dim7.png")
+    
+    # ---------------------------------------------------------------
+    # Plot 5 — Competing Dynamics (z3 vs z6)
+    #   v_3 and v_6 are the most anti-correlated velocity pair (r=-0.10),
+    #   suggesting they capture opposing aging processes — perhaps
+    #   compensatory reserve vs. accumulated damage.
+    # ---------------------------------------------------------------
+    print("\n[5/8] Competing Dynamics (z3 vs z6)...")
+    Z5 = df_sub[['z_mean_3', 'z_mean_6']].values
+    V5 = df_sub[['v_3', 'v_6']].values
+    D5 = df_death[['z_mean_3', 'z_mean_6']].values
+    
+    XX5, YY5, U5, W5 = build_interpolated_grid(Z5, V5)
+    plot_custom_streamplot(XX5, YY5, U5, W5, Z5, D5,
+                           "Competing Dynamics: Dim 3 vs Dim 6",
+                           "Latent Dimension 3 (Physical/General Frailty)",
+                           "Latent Dimension 6 (Compensatory/Adaptive)",
+                           "streamplot_competing.png")
+    
+    # ---------------------------------------------------------------
+    # Plot 6 — Functional Spread vs Biological Axis (z5 vs z0)
+    #   Dim 5 has the 2nd-widest spread; dim 0 is another high-spread
+    #   axis.  Together they show functional–biological interplay.
+    # ---------------------------------------------------------------
+    print("\n[6/8] Functional vs Biological (z5 vs z0)...")
+    Z6 = df_sub[['z_mean_5', 'z_mean_0']].values
+    V6 = df_sub[['v_5', 'v_0']].values
+    D6 = df_death[['z_mean_5', 'z_mean_0']].values
+    
+    XX6, YY6, U6, W6 = build_interpolated_grid(Z6, V6)
+    plot_custom_streamplot(XX6, YY6, U6, W6, Z6, D6,
+                           "Functional–Biological Interplay (Dim 5 vs Dim 0)",
+                           "Latent Dimension 5 (Functional Spread)",
+                           "Latent Dimension 0 (Biological Axis)",
+                           "streamplot_functional_bio.png")
+    
+    # ---------------------------------------------------------------
+    # Plot 7 — Aging Speed Heatmap over PCA space
+    #   Interpretation: colour = median total velocity magnitude at
+    #   each location.  Hot zones = regions of rapid aging; cold zones
+    #   = regions of stasis or resilience.
+    # ---------------------------------------------------------------
+    print("\n[7/8] Aging Speed Heatmap (PCA space)...")
+    total_speed_sub = np.sqrt(np.sum(V_full**2, axis=1))
+    
+    plot_speed_heatmap(Z_pca, total_speed_sub, D_pca,
+                       "Aging Speed Landscape (Total |v| over PCA Manifold)",
+                       f"PC-1 ({var_expl[0]:.1f}% var)",
+                       f"PC-2 ({var_expl[1]:.1f}% var)",
+                       "heatmap_aging_speed.png")
+    
+    # ---------------------------------------------------------------
+    # Plot 8 — Cross-Domain Phase Plane (Physical z3 vs Mental z1)
+    #   Dim 1 captures a separate axis (different from cognitive dim7).
+    #   This shows how mental/affective state co-evolves with physical
+    #   frailty — potential to identify psychosomatic coupling.
+    # ---------------------------------------------------------------
+    print("\n[8/8] Cross-Domain Phase Plane (z3 Physical vs z1 Mental)...")
+    Z8 = df_sub[['z_mean_3', 'z_mean_1']].values
+    V8 = df_sub[['v_3', 'v_1']].values
+    D8 = df_death[['z_mean_3', 'z_mean_1']].values
+    
+    XX8, YY8, U8, W8 = build_interpolated_grid(Z8, V8)
+    plot_custom_streamplot(XX8, YY8, U8, W8, Z8, D8,
+                           "Cross-Domain Flow: Physical Frailty vs Mental State",
+                           "Latent Dimension 3 (Physical/General Frailty)",
+                           "Latent Dimension 1 (Mental/Affective Axis)",
+                           "streamplot_physical_mental.png")
+    
+    print("\n✓ All 8 plots generated.")
 
 if __name__ == "__main__":
     main()
