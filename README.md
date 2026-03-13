@@ -3,7 +3,11 @@
 
 LAVA is a production-grade diagnostic framework designed to disentangle the complex, non-linear trajectories of human aging. By projecting multi-domain clinical deficits into a continuous latent manifold, LAVA moves beyond static "snapshots" of health to measure the instantaneous velocity of biological aging.
 
-## 🚀 Pipeline Overview
+## � Dataset: Mexican Health and Aging Study (MHAS)
+
+The LAVA reference manifold is constructed using longitudinal data from the MHAS cohort (26,463 patients spanning up to 23 years). The engine processes highly irregular survey intervals into a unified, continuous vector field of aging for the Mexican and Hispanic demographic.
+
+## �🚀 Pipeline Overview
 
 The LAVA framework operates through five distinct modular stages:
 
@@ -139,29 +143,33 @@ latent_velocity/
 
 ## 🛠 Usage
 
-To execute the full LAVA pipeline:
-
+**1. Train the Engine and Extract Velocities:**
 ```bash
 cd latent_velocity/engine
 python prepare_frailty_data.py
 python train_vae.py
 python extract_velocity.py
 python clinical_validation.py
+```
 
+**2. Run Real-Time Patient Inference:**
+
+To query the KD-Tree vector field for a single patient and predict their biological momentum in <2ms:
+```bash
+python vector_field_inference.py --patient_data sample_patient.csv
+```
+
+**3. Generate Atlas Visualizations:**
+```bash
 cd ../plots
 python visualize_streamplot.py
 ```
 
-## 🏗 Requirements
-- torch
-- pandas
-- numpy
-- pyreadstat
-- scikit-learn
-- joblib
-- statsmodels
-- lifelines
-- matplotlib
-- seaborn
-- scipy
+## ⚙️ Installation
 
+Clone the repository and install the required dependencies:
+```bash
+git clone https://github.com/yourusername/lava-atlas.git
+cd lava-atlas
+pip install -r requirements.txt
+```
