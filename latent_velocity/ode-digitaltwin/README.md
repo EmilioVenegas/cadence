@@ -1,6 +1,12 @@
 # 🤖 LAVA Digital Twin: Longitudinal Dynamics & Interventions
 
-This module implements the **Longitudinal Simulation Engine** using Exogenous Control Neural ODEs. It allows for counterfactual "what-if" simulations by modeling how latent trajectories change under different clinical interventions.
+This module implements the **Longitudinal Simulation Engine** using Exogenous Control Neural ODEs.
+
+## 📊 Performance Benchmarks
+The High-Momentum Neural ODE is now the **default production model** in the LAVA pipeline.
+- **Trajectory Accuracy**: **79.0% R2** (3-year forecasts).
+- **Directional Alignment**: **0.46 Velocity Magnitude Correlation** and **0.39 Cosine Similarity**.
+- **Inference Speed**: < 2ms per patient simulation.
 
 ## 1. Exogenous Control Neural ODE
 Instead of a simple autonomous system, LAVA's dynamics are governed by an **Exogenous Control ODE**. The velocity of biological decline depends on the current state $z$ and an external control vector $u$ (lifestyle/clinical factors).

@@ -65,7 +65,7 @@ def load_models(device):
     vae.eval()
 
     ode_func = ODEFunc(control_dim=7).to(device)
-    ode_func.load_state_dict(torch.load(MODELS_DIR / 'neural_ode_model.pth',
+    ode_func.load_state_dict(torch.load(MODELS_DIR / 'neural_ode_high_momentum.pth',
                                         map_location=device, weights_only=True))
     ode_func.eval()
     return vae, ode_func

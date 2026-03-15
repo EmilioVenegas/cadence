@@ -49,12 +49,14 @@ def plot_intervention_ranking(cunicah, np_val):
     ax.plot(t, v_baseline, color='#d62728', linewidth=3.5,
             label=f'Baseline (AUC: {ranking["auc_baseline"]:.2f})', zorder=10)
     
-    # Twin curves (ranked best → worst)
     for i, r in enumerate(interventions):
         color = palette[i % len(palette)]
-        conf_marker = "" if r['confidence'] == "High" else " ⚠"
-        linestyle = '-' if r['confidence'] == "High" else '--'
-        ax.plot(t, r['v_mag'], color=color, linewidth=2, alpha=0.85,
+        is_high = r['confidence'] == "High"
+        conf_marker = "" if is_high else " ⚠"
+        linestyle = '-' if is_high else '--'
+        alpha = 0.85 if is_high else 0.3
+        
+        ax.plot(t, r['v_mag'], color=color, linewidth=2, alpha=alpha,
                 linestyle=linestyle,
                 label=f'{r["label"]} ({r["auc_reduction_pct"]:+.1f}%){conf_marker}',
                 zorder=9 - i)
@@ -101,5 +103,5 @@ def plot_intervention_ranking(cunicah, np_val):
 
 
 if __name__ == "__main__":
-    plot_intervention_ranking(cunicah=7226.0, np_val=10.0)
+    plot_intervention_ranking(cunicah=10.0, np_val=10.0)
 
