@@ -1,6 +1,10 @@
 /simpleMHAS
-*.png
+
 *.csv
 *.pyc
 *.pth
 *.sps
+/latent_velocity/plots/tSNE
+/latent_velocity/plots/heatmaps
+/latent_velocity/plots/latent_space
+*.png

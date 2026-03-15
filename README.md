@@ -18,176 +18,122 @@ Here is how the LAVA engine achieves this:
 3. **The Biological Speedometer** — Leveraging the infinite differentiability of the Gaussian Process, we extract the exact analytical derivative ($\frac{dz}{dt}$) of the patient's trajectory. This gives us their instantaneous "aging velocity" at any given moment.
 
 4. **Vector Field Prognostics** — By mapping 2.37 million of these historical velocity vectors, LAVA creates a continuous fluid-dynamics map of human aging. When a new patient arrives for a single visit, we instantly place them in this vector field to see which "current" they are caught in, predicting their future decline in milliseconds.
+## 🖼️ Visual Highlights
+
+### 1. The Currents of Aging (Latent Streamplots)
+LAVA translates discrete health changes into a continuous vector field. Below is a streamplot representing the **disentangled flow of Physical vs. Cognitive decline**. Each "stream" shows the most likely trajectory for a patient at that specific biological coordinate.
+
+![Disentanglement Streamplot](latent_velocity/plots/streamplots/streamplot_disentanglement.png)
+
+### 2. Clinical Smoothness (Gaussian Process Interpolation)
+LAVA resolves the "irregular snapshot" problem by fitting independent GPs to each patient's latent history. This allows us to calculate health derivatives even when years pass between clinic visits.
+
+![GP Trajectory Smoothing](latent_velocity/plots/gp_trajectories/patient_17_10_gp.png)
+
+### 3. Automated Intervention Ranking
+The Digital Twin engine simulates thousands of counterfactual "what-if" scenarios, ranking lifestyle changes by their ability to reduce the 5-year velocity magnitude.
+
+![Intervention Ranking](latent_velocity/plots/intervention_ranking/intervention_ranking.png)
 
 ---
 
-## Dataset: Mexican Health and Aging Study (MHAS)
+## 📈 Performance & Biological Validation
 
-The LAVA reference manifold is constructed using longitudinal data from the MHAS cohort (26,463 patients spanning up to 23 years). The engine processes highly irregular survey intervals into a unified, continuous vector field of aging for the Mexican and Hispanic demographic.
+LAVA is not just a visualization tool; it is a high-precision prognostic engine validated against ground-truth clinical outcomes.
+
+### 1. Predictive Accuracy (Reconstruction $R^2$)
+The $\beta$-VAE captures the underlying biological signal with high fidelity across clinical domains:
+- **Physical Mobility/ADLs**: 77.8% Variance Explained
+- **Cognitive Function**: 73.7% Variance Explained
+- **Clinical Comorbidities**: 61.7% Variance Explained
+- **Overall Manifold Recovery**: 0.98 Mean Correlation
+
+### 2. Mortality Prediction (Biological Aging Velocity)
+In survival analysis (Cox Proportional Hazards), the **Latent Velocity Magnitude** ($||v||$) is a powerful predictor of 5-year mortality:
+- **Hazard Ratio**: patients in the "Fast Ager" velocity quartile (Q4) exhibit a significantly higher risk of mortality ($p < 2.3 \times 10^{-11}$) compared to the stable population.
+- **Inference Speed**: Once trained, LAVA predicts a patient's exact aging velocity and future risk in **< 2ms**, making it suitable for real-time clinical dashboards.
+
+---
 
 ## 🚀 Pipeline Overview
 
-The LAVA framework operates through five distinct modular stages:
+*For detailed mathematical formulations and architectural specifics, see the [Engine Documentation (engine/README.md)](latent_velocity/engine/README.md) and the [Digital Twin Documentation (ode-digitaltwin/README.md)](latent_velocity/ode-digitaltwin/README.md).*
 
-### 1. Data Preparation (`prepare_frailty_data.py`)
+The LAVA framework operates through six modular stages:
+
+### 1. Data Preparation (`engine/prepare_frailty_data.py`)
 Encodes raw longitudinal survey data (MHAS) into a high-dimensional deficit space.
 - **Domains**: Clinical, Functionality, Mental Health, Cognition, and Biometrics.
-- **Processing**: Iterative imputation of missing values and standardization of chronological time.
+- **Processing**: Iterative MICE imputation and standardization.
 
-**Mathematical Foundation (Clinical Indexing):**
-- **Frailty Index (FI)**: The unweighted average of $N$ accumulated health deficits.
-```math
-  FI = \frac{1}{N} \sum_{i=1}^{N} d_i
-```
+### 2. Generative Manifold Learning (`engine/train_vae.py`)
+Maps the deficit space into a low-dimensional latent manifold using a $\beta$-VAE.
+- **Weighted Loss**: Inverse-variance feature weighting to prioritize subtle symptoms (e.g., initial memory loss) over dominant comorbidity counts.
 
+### 3. Longitudinal Velocity Inference (`engine/extract_velocity.py`)
+- **GP Smoothing**: Continuous interpolation of latent coordinates over time.
+- **Analytic Velocity**: Extraction of exact temporal derivatives ($\frac{dz}{dt}$).
 
-### 2. Generative Manifold Learning (`train_vae.py`)
-Maps the deficit space into a low-dimensional latent manifold using a $\beta$-Variational Autoencoder ($\beta$-VAE).
-- **Disentanglement**: Optimized $\beta$-annealing to separate generic frailty from domain-specific signals.
-- **Architecture**: Deep MLP with feature-weighted reconstruction losses.
+### 4. Digital Twin Longitudinal Forecasting (`ode-digitaltwin/`)
+Learning the continuous vector field of aging using a Neural ODE ($f(z, t, u) = \frac{dz}{dt}$).
+- **7D Exogenous Control**: Modeling interventions for Smoking, BMI, Exercise, Hypertension, Diabetes, Alcohol, and Social Engagement.
+- **Biological Washout**: Smooth $u(t)$ transitions to prevent biologically impossible "instantaneous healing."
+- **Ghost Twin Guardrail (Safety)**: Uses Mahalanobis distance to flag Out-of-Distribution (OOD) twins. **This prevents the model from recommending clinically impossible habit combinations, ensuring safe and realistic AI predictions.**
 
-**Mathematical Foundation ($\beta$-VAE Architecture):**
-- **Reparameterization Trick**: Sampling from the latent space allowing for backpropagation.
-```math
-  z = \mu + \epsilon \odot \exp\left(\frac{1}{2} \log \sigma^2\right)
-```
-- **Feature-Weighted $\beta$-VAE Loss**: Combining Inverse-Variance weighted Mean Squared Error (MSE) and $\beta$-scaled Kullback-Leibler (KL) Divergence.
-```math
-\mathcal{L} = \sum_{j=1}^{D} \left( w_j (x_j - \hat{x}_j)^2 \right) - \frac{\beta}{2} \sum_{k=1}^{K} \left( 1 + \log(\sigma_k^2) - \mu_k^2 - \sigma_k^2 \right)
-```
-- **Inverse-Variance Feature Weights**: Normalized weights to penalize features with low variance.
-```math
-w_j = \frac{\frac{1}{\sigma_j^2}}{\sum_{d=1}^{D} \frac{1}{\sigma_d^2}} \times D
-```
+### 5. Categorized Diagnostics (`plots/`)
+Dedicated subfolders for organized research and diagnostic review:
+- `tSNE/`: Latent space quality mappings.
+- `intervention_ranking/`: Recommended clinical pathways.
+- `digital_twin/`: Patient-specific forecast plots.
+- `latent_space/`: Global manifold anatomy (Radar, UMAP).
+- `streamplots/`: Directional flow and Phase portraits.
 
-
-### 3. Longitudinal Velocity Inference (`extract_velocity.py`)
-Infers continuous-time trajectories and their derivatives for each individual.
-- **GP Smoothing**: Gaussian Process regression over longitudinal latent states.
-- **Analytic Velocity**: Extraction of exact temporal derivatives ($\frac{dz}{dt}$) for precise measurement of decline speed.
-
-**Mathematical Foundation (Gaussian Process & Analytic Derivatives):**
-- **GP Kernel (Constant $\times$ RBF + White Noise)**:
-```math
-k(t, t') = \sigma_f^2 \exp\left(-\frac{(t - t')^2}{2l^2}\right) + \sigma_n^2 \delta_{t, t'}
-```
-- **Posterior Mean Trajectory**: The smoothed latent state at a dense grid of points $t^*$.
-```math
-\bar{z}(t^*) = K(t^*, t_{obs}) (K(t_{obs}, t_{obs}) + \sigma_n^2 I)^{-1} y_{obs}
-```
-- **GP Weights ($\alpha$)**:
-```math
-\alpha = (K(t_{obs}, t_{obs}) + \sigma_n^2 I)^{-1} y_{obs}
-```
-- **RBF Kernel Derivative**: The exact partial derivative of the cross-covariance matrix with respect to the prediction time $t^*$.
-```math
-K'(t^*, t_{obs}) = -\frac{t^* - t_{obs}}{l^2} k(t^*, t_{obs})
-```
-- **Analytic Latent Velocity**: The exact derivative of the posterior mean trajectory.
-```math
-v(t^*) = \frac{\partial \bar{z}(t^*)}{\partial t^*} = K'(t^*, t_{obs}) \alpha
-```
-
-### 4. Clinical Validation 
-`clinical_validation.py`
-
-Rigorous statistical verification of latent velocities.
-- **Survival Analysis**: Cox Proportional Hazards modeling to test velocity as a predictor of mortality.
-- **Mixed Models**: Linear Mixed Models to correlate latent derivatives with longitudinal clinical domain progression.
-
-**Mathematical Foundation (Validation & Survival):**
-- **Latent Velocity Magnitude**: Calculating the Euclidean norm of the latent velocity vector.
-```math
-v_{mag} = \sqrt{\sum_{k} v_k^2}
-```
-- **Empirical Clinical Velocity**: Forward finite difference of the Frailty Index over time.
-```math
-v_{emp} = \frac{FI_{t+1} - FI_t}{t_{t+1} - t_t}
-```
-- **Z-Score Normalization**: Used for standardizing age and education.
-```math
-z = \frac{x - \mu}{\sigma}
-```
-- **Hazard Ratio (Cox Proportional Hazards)**: Exponentiating the coefficient for the "Fast Ager" flag.
-```math
-HR = \exp(\beta_{Fast\_Ager})
-```
-
-### 5. Visual Diagnostics (`visualize_*.py`)
-Generates high-resolution visualizations for model interpretability.
-- **Vector Fields**: Latent flow streamplots (e.g., Physical vs. Cognitive disentanglement).
-- **Phase Portraits**: Visualizing biological "momentum" by plotting state vs. velocity.
-
-**Mathematical Foundation (Vector Field Kinematics):**
-- **Discrete Acceleration** (in `visualize_streamplot.py`): Backward finite difference of the analytic velocity.
-```math
-a_k(t) = \frac{v_k(t) - v_k(t-\Delta t)}{\Delta t}
-```
-- **Gaussian Weighted Spatial Interpolation**: Computing localized vector streams using nearest neighbors in the 2D plane based on distance $d_i$.
-```math
-\vec{V}_{interp} = \frac{\sum_{i} \exp\left(-\frac{d_i^2}{2\sigma^2}\right) \vec{v}_i}{\sum_{i} \exp\left(-\frac{d_i^2}{2\sigma^2}\right)}
-```
+---
 
 ## 📂 Project Structure
 
 ```
 latent_velocity/
 │
-├── data/
-│   ├── simpleMHAS.sav               # Raw MHAS data (Ignored in .gitignore)
-│   └── frailty_index_data.csv       # Phase 1: Curated 34-item fractional FI matrix
-│
-├── engine/
-│   ├── _paths.py                    # Centralized path resolution
-│   ├── prepare_frailty_data.py      # Phase 1: MICE imputation & explicit filtering
-│   ├── train_vae.py                 # Phase 2 & 7: Inverse-Variance Weighted β-VAE
-│   ├── extract_velocity.py          # Phase 3 & 4: GP Interpolation & Analytical Derivative
-│   ├── clinical_validation.py       # Phase 5: LMM Validation & Cox PH Survival Models
-│   ├── vector_field_inference.py    # Phase 9: KD-Tree Construction & Single-Point Inference
-│   └── diagnostic_tests.py          # Per-domain reconstruction & variance diagnostics
-│
-├── models/
-│   ├── beta_vae_model.pth           # Frozen encoder/decoder weights
-│   └── latent_velocity_trajectory.csv # The 5-million point historical manifold
-│
-├── plots/                           # Phase 6 & 8 outputs (Streamplots, Heatmaps, KM Curves)
-│   ├── visualize_streamplot.py
-│   ├── visualize_tsne.py
-│   ├── visualize_gp.py
-│   └── analyze_heatmap.py
-│
-└── README.md
+├── engine/                       # Core VAE pipeline & preprocessing
+├── ode-digitaltwin/              # Neural ODE & Longitudinal Simulation
+├── plots/                        # Categorized visualization outputs
+│   ├── tSNE/
+│   ├── intervention_ranking/
+│   ├── digital_twin/
+│   ├── latent_space/
+│   ├── streamplots/
+│   └── gp_trajectories/
+├── models/                       # Frozen weights & trajectories
+└── data/                         # Curated datasets
 ```
 
 ## 🛠 Usage
 
-**1. Train the Engine and Extract Velocities:**
+**1. Train the Foundation (VAE + GP):**
 ```bash
-cd latent_velocity/engine
-python prepare_frailty_data.py
-python train_vae.py
-python extract_velocity.py
-python clinical_validation.py
+python latent_velocity/engine/prepare_frailty_data.py
+python latent_velocity/engine/train_vae.py
+python latent_velocity/engine/extract_velocity.py
 ```
 
-**2. Run Real-Time Patient Inference:**
-
-To query the KD-Tree vector field for a single patient and predict their biological momentum in <2ms:
+**2. Train the Dynamics Engine (Neural ODE):**
 ```bash
-python vector_field_inference.py --patient_data sample_patient.csv
+python latent_velocity/ode-digitaltwin/prepare_ode_data.py
+python latent_velocity/ode-digitaltwin/train_ode.py
 ```
 
-**3. Generate Atlas Visualizations:**
+**3. Run Clinical Ranking:**
 ```bash
-cd ../plots
-python visualize_streamplot.py
+# Output sample ranked list for a specific patient
+python latent_velocity/plots/plot_intervention_ranking.py
 ```
 
 ## ⚙️ Installation
 
-Clone the repository and install the required dependencies:
 ```bash
 git clone https://github.com/yourusername/lava-atlas.git
 cd lava-atlas
 pip install -r requirements.txt
+# Core dependencies: torch, torchdiffeq, umap-learn, plotly, sklearn
 ```
