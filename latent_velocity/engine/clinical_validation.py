@@ -148,46 +148,63 @@ def generate_visualizations(df_traj_full, surv_grouped, cph, hr, velocity_cols):
     print(f" -> Saved {output_path}")
     
     # 3. Velocity Heatmaps
+    # 3. Velocity-Domain Heatmaps (Disentanglement Analysis)
     print("Generating Velocity-Domain Heatmaps...")
     fi_path = str(DATA_DIR / 'frailty_index_data.csv')
     df_fi = pd.read_csv(fi_path)
     df_fi = df_fi.sort_values(by=['cunicah', 'np', 'a_o_ent'])
     
-    cog_cols = ['recuerdo1', 'recuerdo2', 'copiafiguras1', 'copiafiguras2', 'orientacion', 'serial7', 'visualscan', 'memoria']
-    phys_cols = ['n_abvd', 'n_aivd', 'n_mov', 'n_img', 'motoras_gruesas', 'motoras_finas', 
-                 'hipertension', 'diabetes', 'enf_pulm', 'artritis', 'infarto', 'embolia', 'cancer', 'salud_glob']
+    # Define 6 Granular Clinical Domains
+    clin_cols = ['hipertension', 'diabetes', 'enf_pulm', 'artritis', 'infarto', 'embolia', 'cancer']
+    func_cols = ['n_abvd', 'n_aivd', 'n_mov', 'n_img', 'motoras_gruesas', 'motoras_finas', 'salud_glob']
+    cog_cols  = ['recuerdo1', 'recuerdo2', 'copiafiguras1', 'copiafiguras2', 'orientacion', 'serial7', 'visualscan', 'memoria']
     ment_cols = ['deprimido', 'esfuerzo', 'intranquilo', 'triste', 'cansado', 'solo', 'feliz', 'disf_vida', 'energia']
+    life_cols = ['bmi_imp', 'ejer_3_por_sem', 'tabaco']
+    util_cols = ['hospitalizacion', 'visita_medica']
     
-    df_fi['Cog_FI'] = df_fi[cog_cols].mean(axis=1)
-    df_fi['Phys_FI'] = df_fi[phys_cols].mean(axis=1)
-    df_fi['Ment_FI'] = df_fi[ment_cols].mean(axis=1)
+    domains = {
+        'Clin': clin_cols, 
+        'Func': func_cols, 
+        'Cog': cog_cols, 
+        'Ment': ment_cols,
+        'Life': life_cols,
+        'Util': util_cols
+    }
+    
     df_fi['t'] = df_fi['a_o_ent'] - 2001
+    df_fi['next_t'] = df_fi.groupby(['cunicah', 'np'])['t'].shift(-1)
     
-    for col in ['t', 'Cog_FI', 'Phys_FI', 'Ment_FI']:
-        df_fi[f'next_{col}'] = df_fi.groupby(['cunicah', 'np'])[col].shift(-1)
+    delta_cols = []
+    for d_name, d_vars in domains.items():
+        # Calculate mean deficit for the domain
+        df_fi[f'{d_name}_FI'] = df_fi[d_vars].mean(axis=1)
+        # Shift to get next value
+        df_fi[f'next_{d_name}_FI'] = df_fi.groupby(['cunicah', 'np'])[f'{d_name}_FI'].shift(-1)
+        # Calculate empirical delta velocity
+        df_fi[f'delta_{d_name}'] = (df_fi[f'next_{d_name}_FI'] - df_fi[f'{d_name}_FI']) / (df_fi['next_t'] - df_fi['t'])
+        delta_cols.append(f'delta_{d_name}')
         
     df_fi_valid = df_fi.dropna(subset=['next_t']).copy()
-    for domain in ['Cog_FI', 'Phys_FI', 'Ment_FI']:
-        df_fi_valid[f'delta_{domain}'] = (df_fi_valid[f'next_{domain}'] - df_fi_valid[domain]) / (df_fi_valid['next_t'] - df_fi_valid['t'])
-        
+    
     df_traj_full['t_round'] = df_traj_full['t'].round(2)
     df_fi_valid['t_round'] = df_fi_valid['t'].round(2)
     
     merged = pd.merge(df_fi_valid, df_traj_full, on=['cunicah', 'np', 't_round'], how='inner')
     
-    delta_cols = ['delta_Cog_FI', 'delta_Phys_FI', 'delta_Ment_FI']
     corr_matrix = merged[velocity_cols + delta_cols].corr().loc[velocity_cols, delta_cols]
     
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(12, 8))
     sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0, fmt='.2f', 
                 cbar_kws={'label': 'Pearson Correlation', 'pad': 0.02}, 
-                annot_kws={"size": 12},
+                annot_kws={"size": 10},
                 linewidths=1, linecolor='white')
                 
-    plt.title(r'$\beta$-VAE Disentanglement:' + '\nLatent Velocity vs Clinical Domain Velocity', fontsize=16, fontweight='bold', pad=20)
+    plt.title(r'$\beta$-VAE Disentanglement:' + '\nLatent Velocity Component Correlation with Clinical Domains', fontsize=16, fontweight='bold', pad=20)
     plt.ylabel(r"Latent Velocity Component ($v_k$)", fontsize=14)
-    plt.xlabel("Empirical Domain Degradation Rate", fontsize=14)
-    plt.xticks([0.5, 1.5, 2.5], ['Cognitive Decline', 'Physical Decline', 'Mental Health Decline'], fontsize=12)
+    plt.xlabel("Empirical Domain Degradation Rate (Ground Truth)", fontsize=14)
+    
+    domain_labels = ['Clinical', 'Functional', 'Cognitive', 'Mental', 'Lifestyle', 'Utilization']
+    plt.xticks(np.arange(len(domain_labels)) + 0.5, domain_labels, fontsize=11, rotation=45)
     
     plt.tight_layout()
     output_path = str(PLOTS_DIR / 'velocity_domain_heatmap.png')

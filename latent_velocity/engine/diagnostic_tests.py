@@ -74,6 +74,44 @@ def test_2_input_variance(data_path):
     if mental_cog_ratio > 3.0:
         print("  => VAE ALERT: Mental Health variance is heavily dominating Cognitive variance. Disentanglement collapse likely.")
 
+def test_3_reconstruction_accuracy_r2(model_path, data_path, device):
+    print("\n--- TEST 3: Explained Variance (R2 Accuracy) ---")
+    vae = BetaVAE(latent_dim=8).to(device)
+    vae.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+    vae.eval()
+    
+    dataset = FrailtyDataset(data_path, device=device)
+    dataloader = DataLoader(dataset, batch_size=256, shuffle=False)
+    
+    # 1. Get MSE per domain
+    domain_mse_sums = {dom: 0.0 for dom in domain_indices.keys()}
+    total_elements = {dom: 0 for dom in domain_indices.keys()}
+    
+    with torch.no_grad():
+        for b_deficits, b_static in dataloader:
+            recon, _, _ = vae(b_deficits, b_static)
+            for dom, indices in domain_indices.items():
+                x_sub = b_deficits[:, indices]
+                recon_sub = recon[:, indices]
+                domain_mse_sums[dom] += F.mse_loss(recon_sub, x_sub, reduction='sum').item()
+                total_elements[dom] += (b_deficits.size(0) * len(indices))
+                
+    # 2. Get Variance per domain (from the same cleaned dataset)
+    # We use the dataset's cleaned data for consistency
+    df_clean = dataset.data[deficit_cols]
+    variances = df_clean.var()
+    
+    # 3. Calculate R2 = 1 - (MSE / Variance)
+    print("Explained Variance (R2) Per-Domain:")
+    for dom, indices in domain_indices.items():
+        avg_mse = domain_mse_sums[dom] / total_elements[dom]
+        
+        dom_cols = [deficit_cols[i] for i in indices]
+        mean_var = variances[dom_cols].mean()
+        
+        r2 = 1 - (avg_mse / mean_var)
+        print(f"  {dom:<10}: R2={r2:.4f} ({r2*100:4.1f}% accurate)")
+
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_path = str(MODELS_DIR / 'beta_vae_model.pth')
@@ -81,3 +119,4 @@ if __name__ == "__main__":
     
     test_1_per_domain_loss(model_path, data_path, device)
     test_2_input_variance(data_path)
+    test_3_reconstruction_accuracy_r2(model_path, data_path, device)

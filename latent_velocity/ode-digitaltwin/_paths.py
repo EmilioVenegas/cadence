@@ -6,7 +6,7 @@ so scripts work regardless of the caller's working directory.
 """
 from pathlib import Path
 
-# latent_velocity/engine/_paths.py  →  ROOT = latent_velocity/
+# latent_velocity/ode/_paths.py  →  ROOT = latent_velocity/
 ROOT = Path(__file__).resolve().parent.parent
 
 DATA_DIR   = ROOT / "data"

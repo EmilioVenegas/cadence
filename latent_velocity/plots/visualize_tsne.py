@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 import torch
 from extract_velocity import extract_latent_vectors
-from _paths import DATA_DIR, MODELS_DIR, PLOTS_DIR
+from _paths import DATA_DIR, MODELS_DIR, PLOTS_DIR, TSNE_DIR
 
 def plot_all_tsne(df_merged, z_cols):
     """
@@ -34,7 +34,7 @@ def plot_all_tsne(df_merged, z_cols):
     plt.xlabel('t-SNE Dim 1')
     plt.ylabel('t-SNE Dim 2')
     plt.grid(True, alpha=0.3)
-    plt.savefig(str(PLOTS_DIR / 'tsne_frailty_index.png'), dpi=150)
+    plt.savefig(str(TSNE_DIR / 'tsne_frailty_index.png'), dpi=150)
     plt.close()
     
     print("Plotting 2: Chronological Age")
@@ -45,7 +45,7 @@ def plot_all_tsne(df_merged, z_cols):
     plt.xlabel('t-SNE Dim 1')
     plt.ylabel('t-SNE Dim 2')
     plt.grid(True, alpha=0.3)
-    plt.savefig(str(PLOTS_DIR / 'tsne_age.png'), dpi=150)
+    plt.savefig(str(TSNE_DIR / 'tsne_age.png'), dpi=150)
     plt.close()
     
     print("Plotting 3: Mortality / Terminal State")
@@ -61,7 +61,7 @@ def plot_all_tsne(df_merged, z_cols):
     plt.xlabel('t-SNE Dim 1')
     plt.ylabel('t-SNE Dim 2')
     plt.grid(True, alpha=0.3)
-    plt.savefig(str(PLOTS_DIR / 'tsne_mortality.png'), dpi=150)
+    plt.savefig(str(TSNE_DIR / 'tsne_mortality.png'), dpi=150)
     plt.close()
     
     print("Plotting 4: Domain-Specific Deficits (Cognitive vs Physical)")
@@ -83,7 +83,7 @@ def plot_all_tsne(df_merged, z_cols):
     axes[1].set_xlabel('t-SNE Dim 1')
     
     plt.tight_layout()
-    plt.savefig(str(PLOTS_DIR / 'tsne_domains.png'), dpi=150)
+    plt.savefig(str(TSNE_DIR / 'tsne_domains.png'), dpi=150)
     plt.close()
     
     print("Successfully generated all 4 t-SNE projections!")

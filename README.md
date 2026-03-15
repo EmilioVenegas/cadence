@@ -3,6 +3,24 @@
 
 LAVA is a production-grade diagnostic framework designed to disentangle the complex, non-linear trajectories of human aging. By projecting multi-domain clinical deficits into a continuous latent manifold, LAVA moves beyond static "snapshots" of health to measure the instantaneous velocity of biological aging.
 
+## 🧠 Core Concept
+
+Current clinical models track aging through discrete, irregular snapshots (like the Frailty Index). They can tell you how frail a patient is *today*, but they struggle to measure *how fast* that patient is declining.
+
+LAVA was built on a simple premise: **Aging is not a state; it is a velocity.** To predict mortality and biological collapse, we must calculate the mathematical derivative of a patient's health over time.
+
+Here is how the LAVA engine achieves this:
+
+1. **State Compression** — We take 34 noisy, multi-domain clinical survey answers and compress them into a precise 8-dimensional mathematical coordinate representing the patient's exact biological state (β-VAE).
+
+2. **Continuous Interpolation** — Because patients visit the clinic at highly irregular intervals (e.g., gaps of 2, then 9 years), we fit a Gaussian Process to draw a smooth, continuous curve through their latent coordinates, filling in the missing years.
+
+3. **The Biological Speedometer** — Leveraging the infinite differentiability of the Gaussian Process, we extract the exact analytical derivative ($\frac{dz}{dt}$) of the patient's trajectory. This gives us their instantaneous "aging velocity" at any given moment.
+
+4. **Vector Field Prognostics** — By mapping 2.37 million of these historical velocity vectors, LAVA creates a continuous fluid-dynamics map of human aging. When a new patient arrives for a single visit, we instantly place them in this vector field to see which "current" they are caught in, predicting their future decline in milliseconds.
+
+---
+
 ## Dataset: Mexican Health and Aging Study (MHAS)
 
 The LAVA reference manifold is constructed using longitudinal data from the MHAS cohort (26,463 patients spanning up to 23 years). The engine processes highly irregular survey intervals into a unified, continuous vector field of aging for the Mexican and Hispanic demographic.

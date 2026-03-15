@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from sklearn.neighbors import KDTree
 import os
 import time
-from _paths import DATA_DIR, MODELS_DIR, PLOTS_DIR
+from _paths import DATA_DIR, MODELS_DIR, PLOTS_DIR, STREAM_DIR
 
 def load_data_advanced(traj_file):
     print("Loading trajectory vector field...")
@@ -133,7 +133,7 @@ def plot_custom_streamplot(XX, YY, U, W, Z_pts, D_pts, title, xlabel, ylabel, fi
     plt.grid(True, alpha=0.2)
     plt.legend(loc='upper right')
     
-    out_path = str(PLOTS_DIR / filename)
+    out_path = str(STREAM_DIR / filename)
     plt.savefig(out_path, dpi=200, bbox_inches='tight')
     print(f"Saved plot to {out_path}")
     plt.close()
@@ -165,7 +165,7 @@ def plot_speed_heatmap(Z_pts, speed, D_pts, title, xlabel, ylabel, filename,
     ax.set_ylabel(ylabel)
     ax.grid(True, alpha=0.15)
     
-    out_path = str(PLOTS_DIR / filename)
+    out_path = str(STREAM_DIR / filename)
     plt.savefig(out_path, dpi=200, bbox_inches='tight')
     print(f"Saved plot to {out_path}")
     plt.close()

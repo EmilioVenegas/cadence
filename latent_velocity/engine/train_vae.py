@@ -53,7 +53,7 @@ class FrailtyDataset(Dataset):
         return self.x_deficits[idx].to(self.device), self.x_static[idx].to(self.device)
 
 class BetaVAE(nn.Module):
-    def __init__(self, input_dim=36, static_dim=3, hidden_dims=[24, 16], latent_dim=8):
+    def __init__(self, input_dim=36, static_dim=3, hidden_dims=[64, 32], latent_dim=8):
         super(BetaVAE, self).__init__()
         
         self.latent_dim = latent_dim
@@ -138,7 +138,7 @@ def train_model(model, dataloader, dataset, epochs=100, learning_rate=1e-3, targ
     all_deficits = dataset.x_deficits.numpy()
     feature_vars = np.var(all_deficits, axis=0) # Variance per feature
     feature_vars = np.clip(feature_vars, a_min=1e-5, a_max=None)
-    inv_vars = 1.0 / feature_vars
+    inv_vars = (1.0 / feature_vars) ** 2 # Fix C: Squared inverse weights to prioritize subtle signals
     weights_normalized = inv_vars * (len(feature_vars) / np.sum(inv_vars))
     tensor_weights = torch.tensor(weights_normalized, dtype=torch.float32).to(device)
     
@@ -206,8 +206,8 @@ if __name__ == "__main__":
         
         dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
         
-        # Train the model with target_beta=0.1 to maintain expansion while regularizing
-        trained_vae = train_model(vae, dataloader, dataset, epochs=80, learning_rate=5e-4, target_beta=0.1, device=device)
+        # Fix B: Relaxed bottleneck (target_beta=0.01) over more epochs for better reconstruction
+        trained_vae = train_model(vae, dataloader, dataset, epochs=100, learning_rate=5e-4, target_beta=0.01, device=device)
         
         # Save the model
         model_path = str(MODELS_DIR / 'beta_vae_model.pth')

@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 from extract_velocity import extract_latent_vectors, fit_predict_gp
-from _paths import DATA_DIR, MODELS_DIR, PLOTS_DIR
+from _paths import DATA_DIR, MODELS_DIR, PLOTS_DIR, GP_DIR
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -52,7 +52,7 @@ def plot_patient_gp(patient_data, gp_results, z_cols, patient_id):
     axes[-1].set_xlabel('Time (Years since 2001)')
     plt.tight_layout()
     
-    out_path = str(PLOTS_DIR / f'patient_{int(patient_id[0])}_{int(patient_id[1])}_gp.png')
+    out_path = str(GP_DIR / f'patient_{int(patient_id[0])}_{int(patient_id[1])}_gp.png')
     plt.savefig(out_path, dpi=150)
     print(f"Saved GP visualization to: {out_path}")
     plt.close()
