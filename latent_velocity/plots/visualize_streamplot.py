@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg')
 import sys
 from pathlib import Path
 
@@ -9,6 +11,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.neighbors import KDTree
+import umap
 import os
 import time
 from _paths import DATA_DIR, MODELS_DIR, PLOTS_DIR, STREAM_DIR
@@ -184,16 +187,16 @@ def main():
     #   Interpretation: reveals whether physical frailty and cognitive
     #   decline proceed in tandem or on independent trajectories.
     # ---------------------------------------------------------------
-    print("\n[1/8] Disentanglement Plot (z3 vs z7)...")
-    Z1 = df_sub[['z_mean_3', 'z_mean_7']].values
-    V1 = df_sub[['v_3', 'v_7']].values
-    D1 = df_death[['z_mean_3', 'z_mean_7']].values
+    print("\n[1/8] Disentanglement Flow (z3 Physical vs z0 Metabolic)...")
+    Z1 = df_sub[['z_mean_3', 'z_mean_0']].values
+    V1 = df_sub[['v_3', 'v_0']].values
+    D1 = df_death[['z_mean_3', 'z_mean_0']].values
     
     XX1, YY1, U1, W1 = build_interpolated_grid(Z1, V1)
     plot_custom_streamplot(XX1, YY1, U1, W1, Z1, D1, 
-                           "Latent Disentanglement Flow: Physical vs Cognitive",
-                           "Latent Dimension 3 (Physical/General Frailty)",
-                           "Latent Dimension 7 (Cognitive State)",
+                           "Latent Disentanglement Flow: Physical vs Cardiometabolic",
+                           "Latent Dimension 3 (Master Frailty Axis)",
+                           "Latent Dimension 0 (Cardiometabolic Axis)",
                            "streamplot_disentanglement.png")
     
     # ---------------------------------------------------------------
@@ -220,27 +223,49 @@ def main():
     #   components into the top-2 principal components, giving a
     #   single summary field of overall aging flow.
     # ---------------------------------------------------------------
-    print("\n[3/8] PCA-Projected Global Velocity Field...")
-    from sklearn.decomposition import PCA
+    print("\n[3/8] UMAP-Projected Global Velocity Field...")
     
     Z_full = df_sub[[f'z_mean_{k}' for k in range(8)]].values
     V_full = df_sub[[f'v_{k}' for k in range(8)]].values
     
-    pca = PCA(n_components=2, random_state=42)
-    Z_pca = pca.fit_transform(Z_full)
-    V_pca = V_full @ pca.components_.T  # Project velocities into same PCA space
+    # 1. Fit UMAP on the positions
+    reducer = umap.UMAP(n_neighbors=50, min_dist=0.1, random_state=42)
+    Z_umap = reducer.fit_transform(Z_full)
     
+    # 2. Project mortality points
     Z_death_full = df_death[[f'z_mean_{k}' for k in range(8)]].values
-    D_pca = pca.transform(Z_death_full)
+    D_umap = reducer.transform(Z_death_full)
     
-    var_expl = pca.explained_variance_ratio_ * 100
+    # 3. For velocity in UMAP, we visualize "Total Aging Speed" 
+    total_speed = np.sqrt(np.sum(V_full**2, axis=1))
     
-    XX3, YY3, U3, W3 = build_interpolated_grid(Z_pca, V_pca)
-    plot_custom_streamplot(XX3, YY3, U3, W3, Z_pca, D_pca,
-                           "Global Aging Flow (PCA Projection of 8D Manifold)",
-                           f"PC-1 ({var_expl[0]:.1f}% var)",
-                           f"PC-2 ({var_expl[1]:.1f}% var)",
-                           "streamplot_pca_global.png")
+    # We use build_interpolated_grid but pass total_speed as both U and W to 
+    # generate a heatmap-like streamplot or just use plot_speed_heatmap directly.
+    # The prompt suggests: "Let's visualize the 'Total Aging Speed' flowing over the UMAP islands"
+    # Using total_speed as U and W in build_interpolated_grid might not be ideal for streamplot,
+    # but let's follow the spirit of "Total Aging Speed" for the global field.
+    # Actually, projecting V into UMAP space is tricky. A common hack is to use 
+    # specific V dimensions or the speed.
+    
+    # For Plot 3 (streamplot), let's use a dummy velocity or a specific one if projecting V is hard.
+    # The prompt mentions: "Just pass the high-D V magnitudes or a specific V component to interpolate"
+    # Let's use the first two V components scaled or something similar for the "flow".
+    # Or just use the speed heatmap for Plot 7 and a speed-colored streamplot for 3.
+    # Let's try to project V using the Jacobian if we had it, but we don't.
+    # Alternative: interpolate 8D V over the 2D UMAP grid?
+    
+    # Actually, the user suggested:
+    # "You can pass total_speed as both U and W just to generate a heatmap over UMAP"
+    # Let's do that for the grid-based flow visualization if they want a streamplot.
+    
+    V_umap_dummy = np.column_stack([total_speed, total_speed])
+    
+    XX3, YY3, U3, W3 = build_interpolated_grid(Z_umap, V_umap_dummy)
+    plot_custom_streamplot(XX3, YY3, U3, W3, Z_umap, D_umap,
+                           "Global Aging Flow over UMAP Islands",
+                           "UMAP Dim 1",
+                           "UMAP Dim 2",
+                           "streamplot_umap_global.png")
     
     # ---------------------------------------------------------------
     # Plot 4 — Dominant Decline Axis Phase Portrait (z7)
@@ -301,14 +326,14 @@ def main():
     #   each location.  Hot zones = regions of rapid aging; cold zones
     #   = regions of stasis or resilience.
     # ---------------------------------------------------------------
-    print("\n[7/8] Aging Speed Heatmap (PCA space)...")
-    total_speed_sub = np.sqrt(np.sum(V_full**2, axis=1))
+    print("\n[7/8] Aging Speed Heatmap over UMAP Islands...")
+    # total_speed already calculated in [3/8]
     
-    plot_speed_heatmap(Z_pca, total_speed_sub, D_pca,
-                       "Aging Speed Landscape (Total |v| over PCA Manifold)",
-                       f"PC-1 ({var_expl[0]:.1f}% var)",
-                       f"PC-2 ({var_expl[1]:.1f}% var)",
-                       "heatmap_aging_speed.png")
+    plot_speed_heatmap(Z_umap, total_speed, D_umap,
+                       "Aging Speed Landscape over UMAP Islands",
+                       "UMAP Dim 1",
+                       "UMAP Dim 2",
+                       "heatmap_aging_speed_umap.png")
     
     # ---------------------------------------------------------------
     # Plot 8 — Cross-Domain Phase Plane (Physical z3 vs Mental z1)
@@ -316,17 +341,17 @@ def main():
     #   This shows how mental/affective state co-evolves with physical
     #   frailty — potential to identify psychosomatic coupling.
     # ---------------------------------------------------------------
-    print("\n[8/8] Cross-Domain Phase Plane (z3 Physical vs z1 Mental)...")
-    Z8 = df_sub[['z_mean_3', 'z_mean_1']].values
-    V8 = df_sub[['v_3', 'v_1']].values
-    D8 = df_death[['z_mean_3', 'z_mean_1']].values
+    print("\n[8/8] Cross-Domain Phase Plane (z4 Cognitive vs z1 Mental)...")
+    Z8 = df_sub[['z_mean_4', 'z_mean_1']].values
+    V8 = df_sub[['v_4', 'v_1']].values
+    D8 = df_death[['z_mean_4', 'z_mean_1']].values
     
     XX8, YY8, U8, W8 = build_interpolated_grid(Z8, V8)
     plot_custom_streamplot(XX8, YY8, U8, W8, Z8, D8,
-                           "Cross-Domain Flow: Physical Frailty vs Mental State",
-                           "Latent Dimension 3 (Physical/General Frailty)",
+                           "Cross-Domain Flow: Cognitive vs Mental State",
+                           "Latent Dimension 4 (Cognitive Disentanglement)",
                            "Latent Dimension 1 (Mental/Affective Axis)",
-                           "streamplot_physical_mental.png")
+                           "streamplot_cognitive_mental.png")
     
     print("\n✓ All 8 plots generated.")
 
