@@ -7,18 +7,18 @@ LAVA is a production-grade diagnostic framework designed to disentangle the comp
 
 Current clinical models track aging through discrete, irregular snapshots (like the Frailty Index). They can tell you how frail a patient is *today*, but they struggle to measure *how fast* that patient is declining.
 
-LAVA was built on a simple premise: **Aging is not a state; it is a velocity.** To predict mortality and biological collapse, we must calculate the mathematical derivative of a patient's health over time.
+LAVA was built on the premise that aging is not a state; it is a velocity. To predict mortality and biological collapse, we must calculate the mathematical derivative of a patient's health over time.
 
 Here is how the LAVA engine achieves this:
 
-1. **State Compression** — We take 34 noisy, multi-domain clinical survey answers and compress them into a precise 8-dimensional mathematical coordinate representing the patient's exact biological state (β-VAE).
+1. **State Compression** — We take 36 noisy, multi-domain clinical survey answers and compress them into a precise 8-dimensional mathematical coordinate representing the patient's exact biological state (β-VAE).
 
 2. **Continuous Interpolation** — Because patients visit the clinic at highly irregular intervals (e.g., gaps of 2, then 9 years), we fit a Gaussian Process to draw a smooth, continuous curve through their latent coordinates, filling in the missing years.
 
-3. **The Biological Speedometer** — Leveraging the infinite differentiability of the Gaussian Process, we extract the exact analytical derivative ($\frac{dz}{dt}$) of the patient's trajectory. This gives us their instantaneous "aging velocity" at any given moment.
+3. **Latent Velocity** — Leveraging the infinite differentiability of the Gaussian Process, we extract the exact analytical derivative ($\frac{dz}{dt}$) of the patient's trajectory. This gives us their instantaneous "aging velocity" at any given moment.
 
-4. **Vector Field Prognostics** — By mapping 2.37 million of these historical velocity vectors, LAVA creates a continuous fluid-dynamics map of human aging. When a new patient arrives for a single visit, we instantly place them in this vector field to see which "current" they are caught in, predicting their future decline in milliseconds.
-## 🖼️ Visual Highlights
+4. **Vector Field Prognostics** — By mapping 2.37 million of these historical velocity vectors, LAVA creates a continuous dynamics map of human aging. When a new patient arrives for a single visit, we instantly place them in this vector field to see which current they are caught in, predicting their future decline.
+## Visual Highlights
 
 ### 1. The Currents of Aging (Latent Streamplots)
 LAVA translates discrete health changes into a continuous vector field. Below is a streamplot representing the **disentangled flow of Physical vs. Cognitive decline**. Each "stream" shows the most likely trajectory for a patient at that specific biological coordinate.
@@ -31,7 +31,7 @@ LAVA resolves the "irregular snapshot" problem by fitting independent GPs to eac
 ![GP Trajectory Smoothing](latent_velocity/plots/gp_trajectories/patient_17_10_gp.png)
 
 ### 3. Automated Intervention Ranking
-The Digital Twin engine simulates thousands of counterfactual "what-if" scenarios, ranking lifestyle changes by their ability to reduce the 5-year velocity magnitude.
+The Digital Twin engine simulates counterfactual scenarios, ranking lifestyle changes by their ability to reduce the 5-year velocity magnitude.
 
 ![Intervention Ranking](latent_velocity/plots/intervention_ranking/intervention_ranking.png)
 
@@ -98,6 +98,7 @@ latent_velocity/
 │
 ├── engine/                       # Core VAE pipeline & preprocessing
 ├── ode-digitaltwin/              # Neural ODE & Longitudinal Simulation
+├── app_ui/                       # Real-Time Inference Dashboard (Vite/React)
 ├── plots/                        # Categorized visualization outputs
 │   ├── tSNE/
 │   ├── intervention_ranking/
@@ -124,10 +125,21 @@ python latent_velocity/ode-digitaltwin/prepare_ode_data.py
 python latent_velocity/ode-digitaltwin/train_ode.py
 ```
 
-**3. Run Clinical Ranking:**
+**3. Run Clinical Ranking (Static/CLI):**
 ```bash
 # Output sample ranked list for a specific patient
 python latent_velocity/plots/plot_intervention_ranking.py
+```
+
+**4. Launch Real-Time Inference Dashboard:**
+```bash
+# 1. Start Backend API Server
+cd latent_velocity
+python engine/server.py
+
+# 2. Start Frontend App (New Terminal)
+cd latent_velocity/app_ui
+npm install && npm run dev
 ```
 
 ## ⚙️ Installation

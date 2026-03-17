@@ -6,7 +6,7 @@ models/*.pth
 models/*.csv
 
 # Plots (generated images)
-plots/*.png
+
 
 # Python cache
 __pycache__/

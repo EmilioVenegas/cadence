@@ -1,10 +1,43 @@
+# Data & Models (Large Files)
 /simpleMHAS
+/data/*.csv
+/data/*.sav
+/data/*.sps
+/models/*.pth
 
-*.csv
-*.pyc
-*.pth
-*.sps
-/latent_velocity/plots/tSNE
-/latent_velocity/plots/heatmaps
-/latent_velocity/plots/latent_space
-*.png
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.env
+.env.local
+
+# Node / Frontend
+node_modules/
+/latent_velocity/app_ui/node_modules/
+/latent_velocity/app_ui/dist/
+/latent_velocity/app_ui/dist-ssr/
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Outputs & Plots
+
+/latent_velocity/plots/**/*.pdf
+/latent_velocity/plots/tSNE/
+/latent_velocity/plots/heatmaps/
+/latent_velocity/plots/latent_space/
+
+# OS/Editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+latent_velocity/data/simpleMHAS.sps

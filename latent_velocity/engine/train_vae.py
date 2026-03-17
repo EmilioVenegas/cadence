@@ -134,7 +134,7 @@ def train_model(model, dataloader, dataset, epochs=100, learning_rate=1e-3, targ
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     
     # PHASE 8: INVERSE-VARIANCE WEIGHTING
-    print("\n[Phase 8] Calculating Empirical Variance Weights...")
+    print("\nCalculating Empirical Variance Weights...")
     all_deficits = dataset.x_deficits.numpy()
     feature_vars = np.var(all_deficits, axis=0) # Variance per feature
     feature_vars = np.clip(feature_vars, a_min=1e-5, a_max=None)
