@@ -28,7 +28,7 @@ LAVA translates discrete health changes into a continuous vector field. Below is
 ### 2. Clinical Smoothness (Gaussian Process Interpolation)
 LAVA resolves the "irregular snapshot" problem by fitting independent GPs to each patient's latent history. This allows us to calculate health derivatives even when years pass between clinic visits.
 
-![GP Trajectory Smoothing](latent_velocity/plots/gp_trajectories/patient_17_10_gp.png)
+![GP Trajectory Smoothing](latent_velocity/plots/gp_trajectories/patient_3648_10_gp_trajectory.png)
 
 ### 3. Automated Intervention Ranking
 The Digital Twin engine simulates counterfactual scenarios, ranking lifestyle changes by their ability to reduce the 5-year velocity magnitude.
@@ -39,7 +39,7 @@ The Digital Twin engine simulates counterfactual scenarios, ranking lifestyle ch
 
 ## 📈 Performance & Biological Validation
 
-LAVA is not just a visualization tool; it is a high-precision prognostic engine validated against ground-truth clinical outcomes.
+LAVA is a high-precision prognostic engine validated against ground-truth clinical outcomes.
 
 ### 1. Predictive Accuracy (Reconstruction $R^2$)
 The $\beta$-VAE captures the underlying biological signal with high fidelity across clinical domains:
