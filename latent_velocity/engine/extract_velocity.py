@@ -11,7 +11,7 @@ from _paths import DATA_DIR, MODELS_DIR
 
 def extract_latent_vectors(model_path, data_path, device='cpu'):
     print("Loading Trained β-VAE...")
-    vae = BetaVAE(latent_dim=8).to(device)
+    vae = BetaVAE(input_dim=34, latent_dim=8).to(device)
     vae.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     vae.eval()
     
@@ -94,10 +94,11 @@ def fit_predict_gp(patient_data, z_cols, t_grid_step=0.1):
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             gp.fit(t_obs, y_obs)
-            
-        # 1. Predict Posterior Mean Trajectory: \bar{z}(t)
-        z_mean, _ = gp.predict(t_dense, return_std=True)
+
+        # 1. Predict Posterior Mean Trajectory and uncertainty: \bar{z}(t), \sigma(t)
+        z_mean, z_std = gp.predict(t_dense, return_std=True)
         results[f'z_mean_{k}'] = z_mean
+        results[f'z_std_{k}']  = z_std   # posterior std — high in sparse-observation gaps
         
         # 2. Extract Exact Analytic Derivative (The Velvet Hammer)
         # For the kernel k(x, x') = sigma_f^2 * exp(-0.5 * d^2 / l^2)
@@ -120,10 +121,17 @@ def fit_predict_gp(patient_data, z_cols, t_grid_step=0.1):
         
         # 3. Exact Analytic Velocity: v(t*) = sum_obs [ K_prime(t*, t_obs) * alpha ]
         v_analytic = K_prime @ alpha
-        
+
         results[f'v_{k}'] = v_analytic
-        
-    return pd.DataFrame(results)
+
+    df_result = pd.DataFrame(results)
+
+    # Aggregate uncertainty: mean posterior std across all latent dimensions.
+    # High values indicate prior-dominated interpolation (e.g. middle of an 11-year gap).
+    std_cols = [f'z_std_{k}' for k in range(len(z_cols))]
+    df_result['v_uncertainty'] = df_result[std_cols].mean(axis=1)
+
+    return df_result
 
 def extract_velocity(model_path, data_path, output_path, n_jobs=-1):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

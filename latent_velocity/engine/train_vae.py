@@ -17,9 +17,13 @@ class FrailtyDataset(Dataset):
             'n_abvd', 'n_aivd', 'n_mov', 'n_img', 'motoras_gruesas', 'motoras_finas',
             'deprimido', 'esfuerzo', 'intranquilo', 'triste', 'cansado', 'solo', 'feliz', 'disf_vida', 'energia',
             'recuerdo1', 'recuerdo2', 'copiafiguras1', 'copiafiguras2', 'orientacion', 'serial7', 'visualscan', 'memoria',
-            'bmi_imp', 'ejer_3_por_sem', 'tabaco',
+            'bmi_imp',
             'hospitalizacion', 'visita_medica'
         ]
+        # tabaco and ejer_3_por_sem are excluded: they are direct behavioral choices, not
+        # biological states. Their causal effects are captured by the 32 remaining deficit
+        # features (e.g. enf_pulm, infarto for smoking; mobility scores for inactivity).
+        # Both variables remain in frailty_index_data.csv for use as ODE control inputs.
         
         initial_len = len(self.data)
         self.data = self.data.dropna(subset=['FI']).copy()
@@ -187,7 +191,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
-    vae = BetaVAE(latent_dim=8).to(device)
+    vae = BetaVAE(input_dim=34, latent_dim=8).to(device)
     
     data_path = str(DATA_DIR / 'frailty_index_data.csv')
     dataset = FrailtyDataset(data_path, device=device)

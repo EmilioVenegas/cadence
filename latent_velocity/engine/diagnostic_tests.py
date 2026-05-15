@@ -7,14 +7,16 @@ from torch.utils.data import DataLoader
 from train_vae import BetaVAE, FrailtyDataset
 from _paths import DATA_DIR, MODELS_DIR
 
-# Define Domain Indices mapping to the 34 deficit variables
+# Define Domain Indices mapping to the 34 deficit variables used by the VAE.
+# tabaco and ejer_3_por_sem were removed from the VAE input space (they are
+# behavioral controls, not biological states) and now live only in ODE U_COLS.
 deficit_cols = [
     'hipertension', 'diabetes', 'enf_pulm', 'artritis', 'infarto', 'embolia', 'cancer', 'salud_glob', # 8 Clinical (0-7)
     'n_abvd', 'n_aivd', 'n_mov', 'n_img', 'motoras_gruesas', 'motoras_finas', # 6 Phys (8-13)
     'deprimido', 'esfuerzo', 'intranquilo', 'triste', 'cansado', 'solo', 'feliz', 'disf_vida', 'energia', # 9 Mental (14-22)
     'recuerdo1', 'recuerdo2', 'copiafiguras1', 'copiafiguras2', 'orientacion', 'serial7', 'visualscan', 'memoria', # 8 Cog (23-30)
-    'bmi_imp', 'ejer_3_por_sem', 'tabaco', # 3 Bio (31-33)
-    'hospitalizacion', 'visita_medica' # 2 Health (34-35)
+    'bmi_imp', # 1 Bio (31)
+    'hospitalizacion', 'visita_medica' # 2 Health (32-33)
 ]
 
 domain_indices = {
@@ -26,7 +28,7 @@ domain_indices = {
 
 def test_1_per_domain_loss(model_path, data_path, device):
     print("\n--- TEST 1: Per-Domain Reconstruction Loss ---")
-    vae = BetaVAE(latent_dim=8).to(device)
+    vae = BetaVAE(input_dim=34, latent_dim=8).to(device)
     vae.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     vae.eval()
     
@@ -77,7 +79,7 @@ def test_2_input_variance(data_path):
 
 def test_3_reconstruction_accuracy_r2(model_path, data_path, device):
     print("\n--- TEST 3: Explained Variance (R2 Accuracy) ---")
-    vae = BetaVAE(latent_dim=8).to(device)
+    vae = BetaVAE(input_dim=34, latent_dim=8).to(device)
     vae.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     vae.eval()
     
@@ -115,7 +117,7 @@ def test_3_reconstruction_accuracy_r2(model_path, data_path, device):
 
 def test_4_latent_statistics(model_path, data_path, device):
     print("\n--- TEST 4: Latent Space Statistics ---")
-    vae = BetaVAE(latent_dim=8).to(device)
+    vae = BetaVAE(input_dim=34, latent_dim=8).to(device)
     vae.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     vae.eval()
     
@@ -148,7 +150,7 @@ def test_4_latent_statistics(model_path, data_path, device):
 
 def test_5_feature_level_r2(model_path, data_path, device):
     print("\n--- TEST 5: Feature-Level Reconstruction Analysis ---")
-    vae = BetaVAE(latent_dim=8).to(device)
+    vae = BetaVAE(input_dim=34, latent_dim=8).to(device)
     vae.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     vae.eval()
     
@@ -192,7 +194,7 @@ def test_5_feature_level_r2(model_path, data_path, device):
 
 def test_6_save_reconstruction_examples(model_path, data_path, device, num_samples=3):
     print(f"\n--- TEST 6: Saving Reconstruction Examples (n={num_samples}) ---")
-    vae = BetaVAE(latent_dim=8).to(device)
+    vae = BetaVAE(input_dim=34, latent_dim=8).to(device)
     vae.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     vae.eval()
     
@@ -222,7 +224,7 @@ def test_6_save_reconstruction_examples(model_path, data_path, device, num_sampl
         axes[i].set_ylim(0, 1.1)
         
     plt.tight_layout()
-    save_path = "vae_reconstruction_samples.png"
+    save_path = str(MODELS_DIR / 'vae_reconstruction_samples.png')
     plt.savefig(save_path)
     print(f"Reconstruction comparison plot saved to: {save_path}")
 

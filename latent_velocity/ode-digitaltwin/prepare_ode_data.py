@@ -9,7 +9,8 @@ def prepare_ode_pairs(input_path, output_path, dt=3.0):
     
     # Identify columns
     z_cols = [col for col in df.columns if col.startswith('z_mean_')]
-    v_cols = [col for col in df.columns if col.startswith('v_')]
+    # Derive v_cols explicitly from latent dim count to avoid picking up v_uncertainty
+    v_cols = [f'v_{k}' for k in range(len(z_cols))]
     
     # Join with raw data to get lifestyle/clinical features using merge_asof
     from _paths import DATA_DIR
@@ -43,35 +44,50 @@ def prepare_ode_pairs(input_path, output_path, dt=3.0):
     # Ensure no NaNs remain after merge (should be very few if any)
     df[u_cols] = df.groupby(['cunicah', 'np'])[u_cols].ffill().bfill().fillna(0.0)
 
-    
+    # Filter out the 10% most uncertain trajectory points (prior-dominated interpolation
+    # in the middle of long observation gaps contributes noise, not signal, to ODE training).
+    if 'v_uncertainty' in df.columns:
+        uncertainty_threshold = df['v_uncertainty'].quantile(0.90)
+        n_before = len(df)
+        df = df[df['v_uncertainty'] <= uncertainty_threshold].copy()
+        print(f"Uncertainty filter: removed {n_before - len(df)} high-uncertainty points "
+              f"(threshold={uncertainty_threshold:.4f}).")
+
     pairs = []
-    
-    print("Slicing trajectories with Exogenous Control variables (u)...")
+
+    # Non-overlapping stride: consecutive pair windows are separated by exactly dt.
+    # Previously every 0.1-year step generated a pair, creating ~30 correlated pairs
+    # per non-overlapping window. Stride = dt / grid_step = 3.0 / 0.1 = 30.
+    T_GRID_STEP = 0.1
+    stride = max(1, int(dt / T_GRID_STEP))
+
+    print(f"Slicing trajectories with non-overlapping stride={stride} (dt={dt}y, step={T_GRID_STEP}y)...")
     grouped = df.groupby(['cunicah', 'np'])
-    
+
     for (cunicah, np_val), p_data in grouped:
         p_data = p_data.sort_values(by='t')
         times = p_data['t'].values
         z_vals = p_data[z_cols].values
         v_vals = p_data[v_cols].values
         u_vals = p_data[u_cols].values
-        
+
         t_max = times.max()
-        
-        for i, t_start in enumerate(times):
+
+        for i in range(0, len(times), stride):
+            t_start = times[i]
             t_target = t_start + dt
             if t_target > t_max:
                 continue
-                
+
             idx_end = np.where(np.abs(times - t_target) < 1e-4)[0]
-            
+
             if len(idx_end) > 0:
                 idx_end = idx_end[0]
                 z_0 = z_vals[i]
                 z_T = z_vals[idx_end]
                 v_0 = v_vals[i]
-                u_0 = u_vals[i] # Lifestyle at the start of the interval
-                
+                u_0 = u_vals[i]  # lifestyle at the start of the interval
+
                 pairs.append({
                     'z_0': z_0,
                     'z_T': z_T,

@@ -59,7 +59,7 @@ def _extract_patient_u(latest_visit):
 
 
 def load_models(device):
-    vae = BetaVAE(latent_dim=8).to(device)
+    vae = BetaVAE(input_dim=34, latent_dim=8).to(device)
     vae.load_state_dict(torch.load(MODELS_DIR / 'beta_vae_model_128.pth',
                                    map_location=device, weights_only=True))
     vae.eval()
@@ -71,13 +71,20 @@ def load_models(device):
     return vae, ode_func
 
 
+# ── ODE State Management ─────────────────────────────────────────────
+
+def _configure_ode(ode_func, current_u, target_u=None, washout_k=0.0):
+    """Centralise all ODE control state mutations in one place."""
+    ode_func.current_u = current_u
+    ode_func.target_u  = target_u
+    ode_func.washout_k = washout_k
+
+
 # ── Single Twin Simulation ───────────────────────────────────────────
 
 def _simulate_single_twin(ode_func, z0, u_baseline, u_twin, t_span, washout_k=2.0):
     """Run one twin simulation with biological washout; returns v_mag array."""
-    ode_func.current_u = u_baseline
-    ode_func.target_u  = u_twin
-    ode_func.washout_k = washout_k
+    _configure_ode(ode_func, u_baseline, target_u=u_twin, washout_k=washout_k)
 
     with torch.no_grad():
         z_traj = odeint(ode_func, z0, t_span, method='rk4')
@@ -188,24 +195,19 @@ def run_digital_twin_intervention(cunicah, np_val, years=5.0,
         t_span = torch.linspace(0, years, 50).to(device)
 
     # Baseline
-    ode_func.current_u = u_baseline
-    ode_func.target_u  = None
-    ode_func.washout_k = 0.0
+    _configure_ode(ode_func, u_baseline)
     with torch.no_grad():
         z_traj_base = odeint(ode_func, z0, t_span, method='rk4')
 
-    # Twin (washout)
-    v_mag_twin = _simulate_single_twin(ode_func, z0, u_baseline, u_twin, t_span, 2.0)
-
     # Baseline velocities
     v_mag_base = []
-    ode_func.current_u = u_baseline
-    ode_func.target_u  = None
-    ode_func.washout_k = 0.0
     with torch.no_grad():
         for i, t in enumerate(t_span):
             v_t = ode_func(t, z_traj_base[i])
             v_mag_base.append(torch.norm(v_t, dim=-1).item())
+
+    # Twin (washout)
+    v_mag_twin = _simulate_single_twin(ode_func, z0, u_baseline, u_twin, t_span, 2.0)
 
     return {
         't': t_span.cpu().numpy(),
@@ -297,12 +299,14 @@ def rank_interventions(cunicah, np_val, years=5.0, washout_k=2.0):
     u_baseline = torch.tensor([[u_dict[c] for c in U_COLS]], dtype=torch.float32).to(device)
 
     # ── Phase 8: Actionability Filter ──
+    # Use a small tolerance instead of exact equality to handle floating-point
+    # noise that can appear after imputation (e.g. 0.9999... instead of 1.0).
     actionable = []
     for col in U_COLS:
         idx = U_COLS.index(col)
         current = u_baseline[0, idx].item()
         target  = TARGET_MAP[col]
-        if current != target:
+        if abs(current - target) > 0.05:
             actionable.append(col)
 
     if not actionable:
@@ -327,9 +331,7 @@ def rank_interventions(cunicah, np_val, years=5.0, washout_k=2.0):
     t_np   = t_span.cpu().numpy()
 
     # ── Baseline AUC ──
-    ode_func.current_u = u_baseline
-    ode_func.target_u  = None
-    ode_func.washout_k = 0.0
+    _configure_ode(ode_func, u_baseline)
     with torch.no_grad():
         z_traj_base = odeint(ode_func, z0, t_span, method='rk4')
         v_mag_base = []
@@ -467,10 +469,7 @@ def rank_custom_patient(patient_data: dict, years=5.0, washout_k=2.0):
     t_span = torch.linspace(0, years, 50).to(device)
     t_np   = t_span.cpu().numpy()
 
-    ode_func.current_u = u_baseline
-    ode_func.target_u  = None
-    ODE_WASHOUT_DEFAULT = 0.0
-    ode_func.washout_k = ODE_WASHOUT_DEFAULT
+    _configure_ode(ode_func, u_baseline)
     with torch.no_grad():
         z_traj_base = odeint(ode_func, z0, t_span, method='rk4')
         v_mag_base = []

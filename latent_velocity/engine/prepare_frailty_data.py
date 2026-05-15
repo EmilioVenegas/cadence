@@ -183,59 +183,71 @@ def prepare_data(filepath, output_path):
     df_valid = df_combined[valid_mask].copy()
     
     # 4. Perform Multiple Imputation by Chained Equations (MICE) within each wave
+    # Death-wave records (fallecido=1) are excluded from MICE to prevent their
+    # terminal, post-mortem state from biasing the imputation models for healthy records.
+    print("Separating death-wave records before MICE to prevent imputation contamination...")
+    df_death_waves = df_valid[df_valid['fallecido'] == 1].copy()
+    df_alive = df_valid[df_valid['fallecido'] != 1].copy()
+    print(f"  Alive records for imputation: {len(df_alive)} | Death-wave records held out: {len(df_death_waves)}")
+
     print("Performing MICE imputation for remaining missing items (per wave)...")
     impute_covariates = ['edad', 'sexo', 'educacion']
     features_to_impute = items + impute_covariates
-    
+
     imputer = IterativeImputer(random_state=42, max_iter=10, keep_empty_features=True)
-    
+
     imputed_dfs = []
-    waves = df_valid['ronda'].unique()
+    waves = df_alive['ronda'].unique()
     for wave in sorted(waves):
         print(f"  Imputing wave {wave}...")
-        wave_data = df_valid[df_valid['ronda'] == wave].copy()
-        
+        wave_data = df_alive[df_alive['ronda'] == wave].copy()
+
         if len(wave_data) > 0:
             # Subset features including covariates
             active_cols = [c for c in features_to_impute if c in wave_data.columns]
             wave_subset = wave_data[active_cols]
-            
+
             # MICE
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore')
                 imputed_arrays = imputer.fit_transform(wave_subset)
-            
+
             # Reconstruct
             imputed_df = pd.DataFrame(imputed_arrays, columns=active_cols, index=wave_data.index)
             # Clip items (not covariates) to [0, 1]
             for col in items:
                 if col in imputed_df.columns:
                     imputed_df[col] = imputed_df[col].clip(0, 1)
-            
+
             for col in active_cols:
                 wave_data[col] = imputed_df[col]
-            
+
             imputed_dfs.append(wave_data)
-            
-    df_imputed = pd.concat(imputed_dfs)
-    
-    # 4b. Perform Cross-wave MICE for completely empty columns in specific waves
+
+    df_imputed_alive = pd.concat(imputed_dfs)
+
+    # 4b. Perform Cross-wave MICE for completely empty columns in specific waves (alive records only)
     print("Checking for remaining NaNs (items completely missing in a wave)...")
-    if df_imputed[items].isna().sum().sum() > 0:
+    if df_imputed_alive[items].isna().sum().sum() > 0:
         print("Performing cross-wave MICE for items missing across entire waves...")
         cross_imputer = IterativeImputer(random_state=42, max_iter=10)
-        
-        cross_subset = df_imputed[[c for c in features_to_impute if c in df_imputed.columns]]
-        
+
+        cross_subset = df_imputed_alive[[c for c in features_to_impute if c in df_imputed_alive.columns]]
+
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             imputed_arrays_cross = cross_imputer.fit_transform(cross_subset)
-        
-        df_imputed_cross = pd.DataFrame(imputed_arrays_cross, columns=cross_subset.columns, index=df_imputed.index)
-        
+
+        df_imputed_cross = pd.DataFrame(imputed_arrays_cross, columns=cross_subset.columns, index=df_imputed_alive.index)
+
         for col in items:
             if col in df_imputed_cross.columns:
-                df_imputed[col] = df_imputed_cross[col].clip(0, 1)
+                df_imputed_alive[col] = df_imputed_cross[col].clip(0, 1)
+
+    # Reattach death-wave records (their FI/items will be masked in step 6)
+    df_imputed = pd.concat([df_imputed_alive, df_death_waves]).sort_values(
+        ['cunicah', 'np', 'ronda']
+    ).reset_index(drop=True)
     
     # 5. Calculate Frailty Index (FI)
     print("Calculating Frailty Index (FI)...")

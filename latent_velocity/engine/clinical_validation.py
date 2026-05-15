@@ -21,11 +21,89 @@ def calculate_velocity_magnitude(traj_path=None):
     if traj_path is None:
         traj_path = str(MODELS_DIR / 'latent_velocity_trajectory_128.csv')
     print(f"Loading high-resolution Latent Velocity dataset from {traj_path}...")
-        
+
     df_traj = pd.read_csv(traj_path)
-    velocity_cols = [col for col in df_traj.columns if col.startswith('v_')]
+    # Infer latent dim from z_mean columns to avoid picking up v_uncertainty
+    n_latent = sum(1 for c in df_traj.columns if c.startswith('z_mean_'))
+    velocity_cols = [f'v_{k}' for k in range(n_latent)]
     df_traj['v_mag'] = np.sqrt((df_traj[velocity_cols] ** 2).sum(axis=1))
     return df_traj, velocity_cols
+
+
+def compute_frailty_velocity(df_traj, df_fi, velocity_cols):
+    """
+    Project latent velocity onto the direction that best predicts empirical FI change.
+    Adds a signed 'v_frailty' column: positive = deteriorating, negative = improving.
+
+    Two design choices over the naive instantaneous approach:
+    1. Uses 34-feature FI (matching the VAE training set) rather than the CSV FI column,
+       which may still include tabaco/ejer removed from the VAE deficit space.
+    2. Averages the dense trajectory velocity over each clinical interval [t_start, t_end]
+       before regressing — this matches the temporal scale of fi_vel = dFI/dt, which is
+       itself an average over the same interval.
+    """
+    from sklearn.linear_model import Ridge
+
+    deficit_cols_34 = [
+        'hipertension', 'diabetes', 'enf_pulm', 'artritis', 'infarto', 'embolia', 'cancer', 'salud_glob',
+        'n_abvd', 'n_aivd', 'n_mov', 'n_img', 'motoras_gruesas', 'motoras_finas',
+        'deprimido', 'esfuerzo', 'intranquilo', 'triste', 'cansado', 'solo', 'feliz', 'disf_vida', 'energia',
+        'recuerdo1', 'recuerdo2', 'copiafiguras1', 'copiafiguras2', 'orientacion', 'serial7', 'visualscan', 'memoria',
+        'bmi_imp', 'hospitalizacion', 'visita_medica',
+    ]
+
+    df_fi = df_fi.copy()
+    df_fi['t'] = df_fi['a_o_ent'] - 2001
+    available = [c for c in deficit_cols_34 if c in df_fi.columns]
+    df_fi['fi_34'] = df_fi[available].mean(axis=1)
+
+    df_fi = df_fi.sort_values(['cunicah', 'np', 't'])
+    df_fi['next_fi_34'] = df_fi.groupby(['cunicah', 'np'])['fi_34'].shift(-1)
+    df_fi['next_t']     = df_fi.groupby(['cunicah', 'np'])['t'].shift(-1)
+    df_fi_pairs = df_fi.dropna(subset=['fi_34', 'next_fi_34', 't', 'next_t']).copy()
+    df_fi_pairs = df_fi_pairs[df_fi_pairs['next_t'] > df_fi_pairs['t']]
+    df_fi_pairs['fi_vel'] = ((df_fi_pairs['next_fi_34'] - df_fi_pairs['fi_34']) /
+                             (df_fi_pairs['next_t']     - df_fi_pairs['t']))
+
+    intervals = df_fi_pairs[['cunicah', 'np', 't', 'next_t', 'fi_vel']].reset_index(drop=True)
+
+    # For each dense trajectory point, assign it to the clinical interval it falls in:
+    # merge_asof backward finds the most recent interval start ≤ t_traj,
+    # then we keep only points where t_traj ≤ interval end.
+    traj_v = (df_traj[['cunicah', 'np', 't'] + velocity_cols]
+              .dropna(subset=['t'])
+              .sort_values('t'))
+    intervals_sorted = (intervals
+                        .rename(columns={'t': 't_start'})
+                        .sort_values('t_start'))
+
+    traj_assigned = pd.merge_asof(
+        traj_v,
+        intervals_sorted[['cunicah', 'np', 't_start', 'next_t', 'fi_vel']],
+        left_on='t', right_on='t_start',
+        by=['cunicah', 'np'],
+        direction='backward',
+    )
+    traj_in_interval = traj_assigned[
+        traj_assigned['t_start'].notna() & (traj_assigned['t'] <= traj_assigned['next_t'])
+    ]
+    interval_means = (traj_in_interval
+                      .groupby(['cunicah', 'np', 't_start', 'fi_vel'])[velocity_cols]
+                      .mean()
+                      .reset_index())
+
+    valid = interval_means[velocity_cols + ['fi_vel']].notna().all(axis=1)
+    ridge = Ridge(alpha=1.0)
+    ridge.fit(interval_means.loc[valid, velocity_cols], interval_means.loc[valid, 'fi_vel'])
+    r2 = ridge.score(interval_means.loc[valid, velocity_cols], interval_means.loc[valid, 'fi_vel'])
+    w_fi = ridge.coef_
+    w_fi_norm = w_fi / np.linalg.norm(w_fi)
+
+    df_traj = df_traj.copy()
+    df_traj['v_frailty'] = df_traj[velocity_cols].values @ w_fi_norm
+    print(f"  FI-velocity direction fitted: {valid.sum()} intervals, R²={r2:.4f}, "
+          f"||w_fi||={np.linalg.norm(w_fi):.4f}")
+    return df_traj
 
 def execute_lmm_clinical_validation(df_traj, df_fi):
     print("\n--- Phase 5.2: Ground-Truth Clinical Validation (LMM) ---")
@@ -38,14 +116,21 @@ def execute_lmm_clinical_validation(df_traj, df_fi):
     
     df_fi_valid = df_fi.dropna(subset=['next_t', 'next_FI']).copy()
     df_fi_valid['empirical_velocity'] = (df_fi_valid['next_FI'] - df_fi_valid['FI']) / (df_fi_valid['next_t'] - df_fi_valid['t'])
-    
-    df_traj['a_o_ent'] = (df_traj['t'] + 2001).round(0).astype(int)
-    
-    merged_data = pd.merge(df_fi_valid, df_traj[['cunicah', 'np', 'a_o_ent', 'v_mag']], 
-                           on=['cunicah', 'np', 'a_o_ent'], how='inner')
-    
-    if len(merged_data) == 0:
-        raise ValueError("CRITICAL MERGE ERROR: Time matching failed. Check exact integer alignments.")
+
+    # Snap each sparse FI observation to the nearest dense trajectory point.
+    # A round-to-integer-year merge would produce ~10 matches per observation
+    # (one per 0.1-step grid point in that year), inflating LMM sample size 10×.
+    traj_snap = df_traj[['cunicah', 'np', 't', 'v_mag']].sort_values('t')
+    merged_data = pd.merge_asof(
+        df_fi_valid.sort_values('t'),
+        traj_snap,
+        on='t',
+        by=['cunicah', 'np'],
+        direction='nearest',
+    )
+
+    if merged_data['v_mag'].isna().all():
+        raise ValueError("CRITICAL MERGE ERROR: No trajectory matches found. Check patient ID alignment.")
         
     merged_data['edad_z'] = (merged_data['edad'] - merged_data['edad'].mean()) / merged_data['edad'].std()
     merged_data['educ_z'] = (merged_data['educacion'] - merged_data['educacion'].mean()) / merged_data['educacion'].std()
@@ -104,11 +189,15 @@ def plot_survival_curves(surv_grouped, hr):
 
 def plot_archetypal_trajectories(df_traj_full):
     print("Generating Archetypal Trajectories...")
-    df_early = df_traj_full.groupby(['cunicah', 'np']).head(10)
-    patient_vmag = df_early.groupby(['cunicah', 'np'])['v_mag'].mean().reset_index().sort_values(by='v_mag')
-    
-    slow_p = patient_vmag.iloc[0]
-    fast_p = patient_vmag.iloc[-1]
+    df_early = df_traj_full.groupby(['cunicah', 'np']).head(30)
+    # Use signed frailty velocity so fast = deteriorating, slow = improving
+    patient_vf = (
+        df_early.groupby(['cunicah', 'np'])['v_frailty'].mean()
+        .reset_index().sort_values(by='v_frailty')
+    )
+
+    slow_p = patient_vf.iloc[0]   # most negative = improving fastest
+    fast_p = patient_vf.iloc[-1]  # most positive = deteriorating fastest
     
     m_path = str(MODELS_DIR / 'beta_vae_model_128.pth')
     df_obs, _ = extract_latent_vectors(m_path, FI_PATH, DEVICE)
@@ -195,9 +284,15 @@ def plot_velocity_heatmaps(df_traj_full, df_fi, velocity_cols):
         delta_cols.append(f'delta_{d_name}')
         
     df_fi_valid = df_fi.dropna(subset=['next_t']).copy()
-    df_traj_full['a_o_ent'] = (df_traj_full['t'] + 2001).round(0).astype(int)
-    
-    merged = pd.merge(df_fi_valid, df_traj_full, on=['cunicah', 'np', 'a_o_ent'], how='inner')
+
+    traj_snap = df_traj_full[['cunicah', 'np', 't'] + velocity_cols].sort_values('t')
+    merged = pd.merge_asof(
+        df_fi_valid.sort_values('t'),
+        traj_snap,
+        on='t',
+        by=['cunicah', 'np'],
+        direction='nearest',
+    )
     corr_matrix = merged[velocity_cols + delta_cols].corr().loc[velocity_cols, delta_cols]
     
     plt.figure(figsize=(12, 8))
@@ -220,36 +315,118 @@ def plot_velocity_heatmaps(df_traj_full, df_fi, velocity_cols):
 
 def execute_survival_analysis(df_traj_full, df_fi, velocity_cols):
     print("\n--- Phase 5.3: Phenotyping & Survival Analysis ---")
-    
-    df_early = df_traj_full.groupby(['cunicah', 'np']).head(10)
-    patient_vmag = df_early.groupby(['cunicah', 'np'])['v_mag'].mean().reset_index()
-    
-    q1 = patient_vmag['v_mag'].quantile(0.25)
-    q3 = patient_vmag['v_mag'].quantile(0.75)
-    
-    conditions = [(patient_vmag['v_mag'] <= q1), (patient_vmag['v_mag'] >= q3)]
-    patient_vmag['Phenotype'] = np.select(conditions, ['Slow_Ager', 'Fast_Ager'], default='Normal')
-    patient_vmag = patient_vmag[patient_vmag['Phenotype'] != 'Normal']
-    
-    master_data_path = str(DATA_DIR / 'simpleMHAS.sav')
-    df_true_outcomes, _ = pyreadstat.read_sav(master_data_path, usecols=['cunicah', 'np', 'fallecido', 'a_o_ent', 'edad'])
+
+    # Use v_frailty (signed projection onto FI gradient) so that Fast_Ager means
+    # "moving toward worse health", not just "moving fast in any direction".
+    df_early = df_traj_full.groupby(['cunicah', 'np']).head(30)
+    patient_vf = (
+        df_early.groupby(['cunicah', 'np'])['v_frailty'].mean()
+        .reset_index().rename(columns={'v_frailty': 'v_frailty_mean'})
+    )
+
+    # Mean GP uncertainty over the early trajectory window. Patients with sparse
+    # observations (who died early or dropped out) have higher v_uncertainty.
+    # Including it as an explicit Cox covariate separates the "observation completeness"
+    # signal from the biological velocity signal, preventing the two from conflating.
+    if 'v_uncertainty' in df_traj_full.columns:
+        patient_unc = (
+            df_early.groupby(['cunicah', 'np'])['v_uncertainty'].mean()
+            .reset_index().rename(columns={'v_uncertainty': 'mean_unc'})
+        )
+        patient_vf = patient_vf.merge(patient_unc, on=['cunicah', 'np'], how='left')
+    else:
+        patient_vf['mean_unc'] = np.nan
+
+    # Baseline age is kept for Cox covariate adjustment — do not residualize v_frailty
+    # before phenotyping. Prior residualization + Cox age covariate = double adjustment,
+    # which compresses the phenotype signal. Cox handles the age confound on its own.
+    patient_ages = df_fi.groupby(['cunicah', 'np'])['edad'].min().reset_index(name='baseline_age')
+    patient_vf = patient_vf.merge(patient_ages, on=['cunicah', 'np'], how='left')
+
+    patient_vf['v_frailty_adj'] = patient_vf['v_frailty_mean']  # raw, no age residualization
+
+    q1 = patient_vf['v_frailty_adj'].quantile(0.25)
+    q3 = patient_vf['v_frailty_adj'].quantile(0.75)
+
+    conditions = [
+        patient_vf['v_frailty_adj'] <= q1,
+        patient_vf['v_frailty_adj'] >= q3,
+    ]
+    patient_vf['Phenotype'] = np.select(conditions, ['Slow_Ager', 'Fast_Ager'], default='Normal')
+
+    # Survivorship bias: single-obs deceased patients couldn't have GP velocity
+    # computed and are silently excluded. They are the fastest agers (died within
+    # one wave interval). Assign them Fast_Ager to avoid attenuating the Cox HR.
+    obs_counts = df_fi.groupby(['cunicah', 'np']).size().reset_index(name='n_obs')
+    single_obs = obs_counts[obs_counts['n_obs'] == 1]
+    single_obs_dead = single_obs.merge(
+        df_fi[['cunicah', 'np', 'fallecido']].query('fallecido == 1').drop_duplicates(),
+        on=['cunicah', 'np'], how='inner'
+    )
+    if not single_obs_dead.empty:
+        n_rescued = len(single_obs_dead)
+        print(f"  Survivorship fix: adding {n_rescued} single-obs deceased patients as Fast_Agers.")
+        q3_vf = patient_vf['v_frailty_mean'].quantile(0.75)
+        rescued = single_obs_dead[['cunicah', 'np']].copy()
+        rescued['v_frailty_mean'] = q3_vf + 1e-3
+        rescued['v_frailty_adj']  = q3_vf + 1e-3
+        rescued['baseline_age']   = single_obs_dead.merge(
+            patient_ages, on=['cunicah', 'np'], how='left'
+        )['baseline_age'].values
+        # Single-obs patients have no dense trajectory → highest uncertainty by definition
+        rescued['mean_unc'] = patient_vf['mean_unc'].quantile(0.75)
+        rescued['Phenotype'] = 'Fast_Ager'
+        patient_vf = pd.concat([patient_vf, rescued], ignore_index=True)
+
+    patient_vf = patient_vf[patient_vf['Phenotype'] != 'Normal']
+
+    # Re-use already-loaded df_fi for outcomes instead of re-reading the raw SAV
+    df_true_outcomes = df_fi[['cunicah', 'np', 'fallecido', 'a_o_ent', 'edad']].copy()
     df_true_outcomes['fallecido'] = (df_true_outcomes['fallecido'] == 1).astype(int)
-    
-    surv_data = pd.merge(patient_vmag, df_true_outcomes, on=['cunicah', 'np'], how='left')
+
+    # ── Issue 8: Death year precision ────────────────────────────────────────
+    # MHAS reports fallecido=1 in the wave AFTER death — end_year is the
+    # death-report wave, not the actual death year (up to ~3 years late).
+    # For deceased patients, use last_alive_year (last wave where fallecido=0)
+    # as the event time, which is a conservative lower bound on survival duration.
+    last_alive = (
+        df_true_outcomes[df_true_outcomes['fallecido'] == 0]
+        .groupby(['cunicah', 'np'])['a_o_ent'].max()
+        .reset_index(name='last_alive_year')
+    )
+
+    surv_data = pd.merge(patient_vf, df_true_outcomes, on=['cunicah', 'np'], how='left')
     surv_grouped = surv_data.groupby(['cunicah', 'np']).agg(
         Phenotype=('Phenotype', 'first'),
         fallecido=('fallecido', 'max'),
         start_year=('a_o_ent', 'min'),
         end_year=('a_o_ent', 'max'),
-        baseline_age=('edad', 'min')
+        baseline_age=('edad', 'min'),
+        mean_unc=('mean_unc', 'first'),
     ).reset_index()
-    
-    surv_grouped['time_to_event'] = surv_grouped['end_year'] - surv_grouped['start_year'] + 1
+
+    surv_grouped = surv_grouped.merge(last_alive, on=['cunicah', 'np'], how='left')
+    deceased_mask = surv_grouped['fallecido'] == 1
+    surv_grouped.loc[deceased_mask, 'end_year'] = (
+        surv_grouped.loc[deceased_mask, 'last_alive_year']
+        .fillna(surv_grouped.loc[deceased_mask, 'end_year'])
+    )
+
+    surv_grouped['time_to_event'] = surv_grouped['end_year'] - surv_grouped['start_year']
     surv_grouped = surv_grouped.dropna(subset=['time_to_event', 'fallecido'])
+    surv_grouped = surv_grouped[surv_grouped['time_to_event'] > 0]
     surv_grouped['Fast_Ager_Flag'] = (surv_grouped['Phenotype'] == 'Fast_Ager').astype(float)
-    
-    cph_data = surv_grouped[['time_to_event', 'fallecido', 'Fast_Ager_Flag', 'baseline_age']].copy()
+
+    # Standardize mean_unc before entering Cox (puts it on the same scale as other covariates)
+    unc_mean = surv_grouped['mean_unc'].mean()
+    unc_std  = surv_grouped['mean_unc'].std()
+    surv_grouped['mean_unc_z'] = (surv_grouped['mean_unc'] - unc_mean) / unc_std
+
+    cph_data = surv_grouped[['time_to_event', 'fallecido', 'Fast_Ager_Flag',
+                              'baseline_age', 'mean_unc_z']].dropna()
     cph = CoxPHFitter().fit(cph_data, duration_col='time_to_event', event_col='fallecido')
+    print("\n[COX MODEL]")
+    print(cph.summary[['coef', 'exp(coef)', 'p']].round(4))
     hr = np.exp(cph.params_['Fast_Ager_Flag'])
     
     # Call the refactored visualization functions
@@ -264,9 +441,10 @@ def execute_survival_analysis(df_traj_full, df_fi, velocity_cols):
 if __name__ == "__main__":
     # Load foundational data ONCE
     df_fi_global = pd.read_csv(FI_PATH)
-    
+
     df_magnitude, velocity_cols = calculate_velocity_magnitude()
-    
+    df_magnitude = compute_frailty_velocity(df_magnitude, df_fi_global, velocity_cols)
+
     try:
         execute_lmm_clinical_validation(df_magnitude, df_fi_global)
         cph_model, corr_mat = execute_survival_analysis(df_magnitude, df_fi_global, velocity_cols)
