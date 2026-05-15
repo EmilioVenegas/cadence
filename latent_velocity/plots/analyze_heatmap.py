@@ -13,13 +13,14 @@ from _paths import DATA_DIR, MODELS_DIR, HEATMAP_DIR
 
 # Load data
 fi_path = str(DATA_DIR / 'frailty_index_data.csv')
-traj_path = str(MODELS_DIR / 'latent_velocity_trajectory.csv')
+traj_path = str(MODELS_DIR / 'latent_velocity_trajectory_128.csv')
 
 df_fi = pd.read_csv(fi_path)
 df_traj = pd.read_csv(traj_path)
 
 # 1. Expand Domains & Categories
-cog_cols = ['recuerdo1', 'recuerdo2', 'copiafiguras1', 'orientacion', 'serial7', 'memoria']
+# Note: Added copiafiguras2 and visualscan to match VAE training (36 deficits total)
+cog_cols = ['recuerdo1', 'recuerdo2', 'copiafiguras1', 'copiafiguras2', 'orientacion', 'serial7', 'visualscan', 'memoria']
 phys_cols = ['n_abvd', 'n_aivd', 'n_mov', 'n_img', 'motoras_gruesas', 'motoras_finas']
 ment_cols = ['deprimido', 'esfuerzo', 'intranquilo', 'triste', 'cansado', 'solo', 'feliz', 'disf_vida', 'energia']
 
@@ -43,14 +44,18 @@ for col in ['t', 'Cog_FI', 'Phys_FI', 'Ment_FI']:
 df_fi_valid = df_fi.dropna(subset=['next_t']).copy()
 for domain in ['Cog_FI', 'Phys_FI', 'Ment_FI']:
     df_fi_valid[f'delta_{domain}'] = (df_fi_valid[f'next_{domain}'] - df_fi_valid[domain]) / (df_fi_valid['next_t'] - df_fi_valid['t'])
-    
-df_traj['t_round'] = df_traj['t'].round(2)
-df_fi_valid['t_round'] = df_fi_valid['t'].round(2)
 
-# 4. Merge Latent and Clinical
-merge_cols = ['cunicah', 'np', 't_round', 'Cog_FI', 'Phys_FI', 'Ment_FI', 
+# 4. Safer Merging logic (using integer years instead of floats)
+# Trajectory file uses t = Year - 2001. Clinical visits happen at integer years.
+df_traj['a_o_ent'] = (df_traj['t'] + 2001).round(0).astype(int)
+
+# 5. Merge Latent and Clinical
+merge_cols = ['cunicah', 'np', 'a_o_ent', 'Cog_FI', 'Phys_FI', 'Ment_FI', 
               'delta_Cog_FI', 'delta_Phys_FI', 'delta_Ment_FI', 'FI', 'edad'] + category_cols
-merged = pd.merge(df_fi_valid[merge_cols], df_traj, on=['cunicah', 'np', 't_round'], how='inner')
+
+# Interpretation Note: Because target_beta=0.01 in VAE training, expect high entanglement. 
+# A single latent dimension may correlate with multiple clinical domains.
+merged = pd.merge(df_fi_valid[merge_cols], df_traj, on=['cunicah', 'np', 'a_o_ent'], how='inner')
 
 # 5. Correlation Matrices
 velocity_cols = [f'v_{k}' for k in range(8)]
@@ -76,7 +81,20 @@ plt.savefig(str(save_path), dpi=150)
 plt.close()
 print(f"\nSuccessfully generated Heatmap: {save_path.name}")
 
-# Velocity vs Decline
+# 6. Latent Velocity vs Clinical Decline
 vel_corr = merged[velocity_cols + delta_cols].corr().loc[velocity_cols, delta_cols]
 print("\n--- Correlation Matrix (Latent Velocity vs Clinical Decline) ---")
 print(vel_corr)
+
+# 7. Visualization: Velocity vs Decline Heatmap
+plt.figure(figsize=(10, 8))
+sns.heatmap(vel_corr, annot=True, cmap='PRGn', center=0, fmt='.2f', linewidths=0.5)
+plt.title('LAVA Dynamics: Latent Velocity (V) vs Clinical Decline (Δ)', fontsize=15)
+plt.ylabel('8D Latent Velocity (v_k)')
+plt.xlabel('Clinical Domain Decline Rates')
+plt.tight_layout()
+
+vel_save_path = HEATMAP_DIR / 'latent_velocity_heatmap.png'
+plt.savefig(str(vel_save_path), dpi=150)
+plt.close()
+print(f"Successfully generated Velocity Heatmap: {vel_save_path.name}")

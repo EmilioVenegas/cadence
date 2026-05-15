@@ -6,7 +6,7 @@ import os
 from _paths import MODELS_DIR
 from train_ode import ODEFunc
 
-def train_ode_high_momentum(data_path, model_path, epochs=100, lr=1e-3, batch_size=4096, solver='rk4'):
+def train_ode_high_momentum(data_path, model_path, epochs=100, lr=1e-3, batch_size=4096, solver='dopri5'):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"--- High-Momentum ODE Training ---")
     print(f"Device: {device} | Batch: {batch_size} | Solver: {solver}")
@@ -28,17 +28,30 @@ def train_ode_high_momentum(data_path, model_path, epochs=100, lr=1e-3, batch_si
     criterion = nn.MSELoss()
     
     # Aggressive Regularization
-    lambda_reg = 3.0 
+    lambda_reg = 15.0 
+    lambda_dir = 5.0
+    lambda_mag = 10.0
     
-    print(f"Priority: Velocity Correlation (lambda_reg={lambda_reg})")
+    print(f"Priority: Velocity Correlation (lambda_reg={lambda_reg}, lambda_dir={lambda_dir}, lambda_mag={lambda_mag})")
     print(f"Aggressive convergence strategy for {dataset_size} pairs...")
     
     try:
         for epoch in range(epochs):
+            # Curriculum Learning: Euler for speed in early epochs, adaptive for refinement
+            if epoch < 20: 
+                current_solver = 'euler'
+                solver_opts = {}
+            else:
+                current_solver = solver # Default dopri5
+                solver_opts = {'atol': 1e-3, 'rtol': 1e-3}
+            
+            func.nfe = 0 # Reset function evaluation counter
             perm = torch.randperm(dataset_size)
             epoch_loss = 0
             epoch_mse = 0
             epoch_reg = 0
+            epoch_dir = 0
+            epoch_mag = 0
             
             for i in range(0, dataset_size, batch_size):
                 optimizer.zero_grad()
@@ -52,7 +65,7 @@ def train_ode_high_momentum(data_path, model_path, epochs=100, lr=1e-3, batch_si
                 func.current_u = b_u0
                 
                 # 1. Prediction (Final State)
-                b_z_pred = odeint(func, b_z0, t_span, method=solver)
+                b_z_pred = odeint(func, b_z0, t_span, method=current_solver, **solver_opts)
                 z_pred_final = b_z_pred[1]
                 mse_loss = criterion(z_pred_final, b_zT)
                 
@@ -60,9 +73,18 @@ def train_ode_high_momentum(data_path, model_path, epochs=100, lr=1e-3, batch_si
                 v_pred_start = func(0, b_z0)
                 reg_loss = criterion(v_pred_start, b_v0)
                 
-                # Balanced Loss: Normalize by initial expected magnitudes if needed
-                # Here we just apply the high lambda_reg
-                loss = mse_loss + lambda_reg * reg_loss
+                # 3. Explicit Directional Loss (Cosine Similarity)
+                # Penalize bad angles explicitly: 1 - cosine_similarity
+                dir_loss = 1 - torch.nn.functional.cosine_similarity(v_pred_start, b_v0).mean()
+                
+                # 4. Explicit Magnitude Loss
+                # Penalize the difference in vector norms
+                v_pred_norm = torch.norm(v_pred_start, dim=1)
+                v_true_norm = torch.norm(b_v0, dim=1)
+                mag_loss = criterion(v_pred_norm, v_true_norm)
+                
+                # Balanced Loss: State MSE + Velocity MSE + Directional + Magnitude
+                loss = mse_loss + lambda_reg * reg_loss + lambda_dir * dir_loss + lambda_mag * mag_loss
                 
                 loss.backward()
                 optimizer.step()
@@ -70,11 +92,13 @@ def train_ode_high_momentum(data_path, model_path, epochs=100, lr=1e-3, batch_si
                 epoch_loss += loss.item() * (len(indices) / dataset_size)
                 epoch_mse += mse_loss.item() * (len(indices) / dataset_size)
                 epoch_reg += reg_loss.item() * (len(indices) / dataset_size)
+                epoch_dir += dir_loss.item() * (len(indices) / dataset_size)
+                epoch_mag += mag_loss.item() * (len(indices) / dataset_size)
             
             scheduler.step(epoch_mse)
             
             if (epoch + 1) % 5 == 0 or epoch == 0:
-                print(f"Epoch [{epoch+1}/{epochs}] | Obj: {epoch_loss:.6f} | MSE: {epoch_mse:.6f} | V-MSE: {epoch_reg:.6f} | LR: {optimizer.param_groups[0]['lr']:.2e}")
+                print(f"Epoch [{epoch+1}/{epochs}] | Obj: {epoch_loss:.6f} | MSE: {epoch_mse:.6f} | V-MSE: {epoch_reg:.6f} | Dir: {epoch_dir:.4f} | Mag: {epoch_mag:.6f} | NFE: {func.nfe} | LR: {optimizer.param_groups[0]['lr']:.2e}")
                 
     except KeyboardInterrupt:
         print("Training interrupted. Saving current state...")
@@ -88,6 +112,6 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=100)
     args = parser.parse_args()
     
-    data_path = str(MODELS_DIR / 'ode_training_pairs.pth')
-    model_path = str(MODELS_DIR / 'neural_ode_high_momentum.pth')
+    data_path = str(MODELS_DIR / 'ode_training_pairs_128.pth')
+    model_path = str(MODELS_DIR / 'neural_ode_high_momentum_128.pth')
     train_ode_high_momentum(data_path, model_path, epochs=args.epochs)

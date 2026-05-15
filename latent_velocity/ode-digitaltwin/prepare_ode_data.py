@@ -21,8 +21,8 @@ def prepare_ode_pairs(input_path, output_path, dt=3.0):
     df_raw['social_isolation'] = 1.0 - df_raw[['asiste_club', 'voluntario']].max(axis=1)
     
     u_cols = ['tabaco', 'bmi_imp', 'ejer_3_por_sem', 'hipertension', 'diabetes', 'alcohol', 'social_isolation']
-    # Note: ejer_3_por_sem has INVERTED polarity (1=exercises=good, 0=sedentary=bad).
-    # We keep it as-is here; the target_map in digital_twin.py handles direction.
+    # Note: ejer_3_por_sem is stored inverted in frailty_index_data.csv (1=sedentary=bad, 0=exercises=good),
+    # because prepare_frailty_data.py maps it as 1 - raw. TARGET_MAP targets 0.0 (exercises).
     
     df_u = df_raw[['cunicah', 'np', 'a_o_ent'] + u_cols].rename(columns={'a_o_ent': 't'})
     
@@ -104,6 +104,6 @@ def prepare_ode_pairs(input_path, output_path, dt=3.0):
     print(f"Data saved to {output_path}")
 
 if __name__ == "__main__":
-    traj_path = str(MODELS_DIR / 'latent_velocity_trajectory.csv')
-    out_path = str(MODELS_DIR / 'ode_training_pairs.pth')
+    traj_path = str(MODELS_DIR / 'latent_velocity_trajectory_128.csv')
+    out_path = str(MODELS_DIR / 'ode_training_pairs_128.pth')
     prepare_ode_pairs(traj_path, out_path)

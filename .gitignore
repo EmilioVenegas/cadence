@@ -1,9 +1,12 @@
 # Data & Models (Large Files)
-/simpleMHAS
-/data/*.csv
-/data/*.sav
-/data/*.sps
-/models/*.pth
+latent_velocity/data/*.csv
+latent_velocity/data/*.sav
+latent_velocity/data/*.sps
+latent_velocity/models/*.pt
+latent_velocity/models/*.pth
+latent_velocity/models/*.pkl
+latent_velocity/RAND/
+*.zip
 
 # Python
 __pycache__/
@@ -17,9 +20,8 @@ ENV/
 
 # Node / Frontend
 node_modules/
-/latent_velocity/app_ui/node_modules/
-/latent_velocity/app_ui/dist/
-/latent_velocity/app_ui/dist-ssr/
+dist/
+dist-ssr/
 *.local
 
 # Logs
@@ -28,11 +30,11 @@ npm-debug.log*
 yarn-debug.log*
 
 # Outputs & Plots
-
-/latent_velocity/plots/**/*.pdf
-/latent_velocity/plots/tSNE/
-/latent_velocity/plots/heatmaps/
-/latent_velocity/plots/latent_space/
+latent_velocity/plots/**/*.pdf
+latent_velocity/plots/tSNE/
+latent_velocity/plots/heatmaps/
+latent_velocity/plots/latent_space/
+latent_velocity/plots/gp_trajectories/
 
 # OS/Editor
 .DS_Store
@@ -40,4 +42,7 @@ yarn-debug.log*
 .idea/
 *.swp
 *.swo
-latent_velocity/data/simpleMHAS.sps
+
+# Claude Code
+.claude/
+CLAUDE.md

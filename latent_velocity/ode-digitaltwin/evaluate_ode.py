@@ -7,7 +7,7 @@ from sklearn.metrics import r2_score
 from _paths import MODELS_DIR
 from train_ode import ODEFunc
 
-def evaluate_ode(data_path, model_path, solver='rk4'):
+def evaluate_ode(data_path, model_path, solver='dopri5'):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"--- Neural ODE Performance Evaluation ---")
     print(f"Device: {device} | Solver: {solver}")
@@ -33,7 +33,8 @@ def evaluate_ode(data_path, model_path, solver='rk4'):
     with torch.no_grad():
         # 1. Prediction (Terminal State)
         func.current_u = u0
-        z_pred_traj = odeint(func, z0, t_span, method=solver)
+        # Use relaxed tolerances consistent with refined training
+        z_pred_traj = odeint(func, z0, t_span, method=solver, atol=1e-3, rtol=1e-3)
         z_pred_final = z_pred_traj[1]
         
         # 2. Velocity Prediction (Baseline Correspondence)
@@ -56,19 +57,22 @@ def evaluate_ode(data_path, model_path, solver='rk4'):
     
     mean_r2 = np.mean(r2_dims)
     
+    # Magnitude Comparison (Clinical Consistency)
+    v_mag_true = np.sqrt(np.sum(v0_np**2, axis=1))
+    v_mag_pred = np.sqrt(np.sum(v_pred_np**2, axis=1))
+    mse_mag = np.mean((v_mag_true - v_mag_pred)**2)
+    
     print("\n[METRICS SUMMARY]")
     print(f"  Terminal Latent State MSE: {mse_z:.6f}")
     print(f"  Initial Velocity MSE:     {mse_v:.6f}")
+    print(f"  Initial Velocity Mag MSE: {mse_mag:.6f}")
     print(f"  Mean Explained Variance (R2): {mean_r2:.4f} ({mean_r2*100:.1f}%)")
     
     print("\nPer-Dimension R2 Scores:")
     for i, r2 in enumerate(r2_dims):
         print(f"  z_mean_{i:<2}: {r2:.4f}")
         
-    # Calculate Velocity Magnitude Correlation (Clinical Consistency)
-    v_mag_true = np.sqrt(np.sum(v0_np**2, axis=1))
-    v_mag_pred = np.sqrt(np.sum(v_pred_np**2, axis=1))
-    v_corr = np.corrcoef(v_mag_true, v_mag_pred)[0, 1]
+    v_mag_corr = np.corrcoef(v_mag_true, v_mag_pred)[0, 1]
     
     # Calculate Velocity Component Correlations
     print("\nPer-Component Velocity Correlations ($v_k$):")
@@ -78,9 +82,6 @@ def evaluate_ode(data_path, model_path, solver='rk4'):
         v_corrs.append(corr)
         print(f"  v_{i:<2}: {corr:.4f}")
     
-    # Calculate Velocity Magnitude Correlation (Clinical Consistency)
-    v_mag_true = np.sqrt(np.sum(v0_np**2, axis=1))
-    v_mag_pred = np.sqrt(np.sum(v_pred_np**2, axis=1))
     v_mag_corr = np.corrcoef(v_mag_true, v_mag_pred)[0, 1]
     
     print(f"\nOverall Velocity Magnitude Correlation: {v_mag_corr:.4f}")
@@ -103,14 +104,15 @@ def evaluate_ode(data_path, model_path, solver='rk4'):
     return {
         'mse_z': mse_z,
         'mse_v': mse_v,
+        'mse_mag': mse_mag,
         'mean_r2': mean_r2,
         'r2_dims': r2_dims,
         'v_corr_mag': v_mag_corr,
         'v_corrs': v_corrs,
-        'mean_cos_sim': mean_cos_sim # New Metric
+        'mean_cos_sim': mean_cos_sim
     }
 
 if __name__ == "__main__":
-    data_path = str(MODELS_DIR / 'ode_training_pairs.pth')
-    model_path = str(MODELS_DIR / 'neural_ode_model.pth')
+    data_path = str(MODELS_DIR / 'ode_training_pairs_128.pth')
+    model_path = str(MODELS_DIR / 'neural_ode_high_momentum_128.pth')
     evaluate_ode(data_path, model_path)

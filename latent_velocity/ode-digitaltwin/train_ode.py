@@ -23,8 +23,10 @@ class ODEFunc(nn.Module):
         self.current_u = None
         self.target_u = None
         self.washout_k = 0.0  # k=0 means constant u = current_u
+        self.nfe = 0
 
     def forward(self, t, z):
+        self.nfe += 1
         # Calculate u(t) to simulate biological washout
         # u(t) = target_u + (start_u - target_u) * exp(-k * t)
         if self.current_u is None:

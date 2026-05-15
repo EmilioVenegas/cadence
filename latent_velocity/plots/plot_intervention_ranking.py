@@ -25,7 +25,7 @@ def plot_intervention_ranking(cunicah, np_val):
     patient_id = ranking['patient_id']
     
     # Phenotype thresholds
-    df_traj = pd.read_csv(MODELS_DIR / 'latent_velocity_trajectory.csv',
+    df_traj = pd.read_csv(MODELS_DIR / 'latent_velocity_trajectory_128.csv',
                           usecols=['v_0','v_1','v_2','v_3','v_4','v_5','v_6','v_7'])
     v_cols = [c for c in df_traj.columns if c.startswith('v_')]
     v_mags = np.sqrt((df_traj[v_cols]**2).sum(axis=1))
@@ -103,5 +103,5 @@ def plot_intervention_ranking(cunicah, np_val):
 
 
 if __name__ == "__main__":
-    plot_intervention_ranking(cunicah=10.0, np_val=10.0)
+    plot_intervention_ranking(cunicah=7226.0, np_val=10.0)
 

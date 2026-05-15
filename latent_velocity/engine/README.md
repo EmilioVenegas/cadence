@@ -1,4 +1,4 @@
-# 🧪 LAVA Engine: Mathematical Foundations
+# 🌋 LAVA Engine: Mathematical Foundations
 
 This document details the mathematical framework underpinning the Latent Aging Velocity Atlas (LAVA).
 

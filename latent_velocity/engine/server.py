@@ -7,13 +7,13 @@ _ROOT = _ENGINE.parent
 sys.path.insert(0, str(_ENGINE))
 sys.path.insert(0, str(_ROOT / "ode-digitaltwin"))
 
-from fastapi import FastAPI, HTTPException, Path
+from fastapi import FastAPI, HTTPException, Path, Request
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import numpy as np
 import json
 from _paths import DATA_DIR
-from digital_twin import rank_interventions
+from digital_twin import rank_interventions, rank_custom_patient, generate_llm_summary
 
 app = FastAPI(title="LAVA Real-Time Inference API")
 
@@ -112,6 +112,53 @@ async def get_intervention_ranking(cunicah: float, np_visit: float = Path(..., a
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/rank/live")
+async def perform_live_inference(request: Request):
+    """Run real-time intervention ranking for a manually inputted patient."""
+    try:
+        patient_data = await request.json()
+        ranking = rank_custom_patient(patient_data)
+        
+        if ranking is None:
+            raise HTTPException(status_code=400, detail="Custom patient already at targets or invalid.")
+            
+        def sanitize(obj):
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            if isinstance(obj, np.float32) or isinstance(obj, np.float64):
+                return float(obj)
+            if isinstance(obj, dict):
+                return {k: sanitize(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [sanitize(x) for x in obj]
+            return obj
+
+        return sanitize(ranking)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/summary")
+async def request_llm_action_plan(request: Request):
+    """Generate a 3-sentence LLM output based on ODE findings."""
+    try:
+        data = await request.json()
+        actionable = data.get("actionable_deficits", [])
+        best_intervention = data.get("best_intervention", {})
+        base_auc = data.get("base_auc", 0.0)
+        new_auc = data.get("new_auc", 0.0)
+        patient_context = data.get("patient_context", "")
+        
+        summary = generate_llm_summary(actionable, best_intervention, base_auc, new_auc, patient_context)
+        return {"action_plan_summary": summary}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 if __name__ == "__main__":
     import uvicorn

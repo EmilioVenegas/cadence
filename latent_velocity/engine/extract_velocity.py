@@ -152,8 +152,8 @@ def extract_velocity(model_path, data_path, output_path, n_jobs=-1):
     print("Done!")
 
 if __name__ == "__main__":
-    model_path = str(MODELS_DIR / 'beta_vae_model.pth')
+    model_path = str(MODELS_DIR / 'beta_vae_model_128.pth')
     data_path  = str(DATA_DIR / 'frailty_index_data.csv')
-    output_path = str(MODELS_DIR / 'latent_velocity_trajectory.csv')
+    output_path = str(MODELS_DIR / 'latent_velocity_trajectory_128.csv')
     
     extract_velocity(model_path, data_path, output_path)

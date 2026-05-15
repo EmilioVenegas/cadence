@@ -1,4 +1,4 @@
-# 🏙️ Latent Velocity Atlas: Module Overview
+# 🌋 Latent Velocity Atlas: Module Overview
 
 This directory contains the core implementation of the LAVA project. The architecture is split into two primary functional layers: the **Foundation Engine** and the **Longitudinal Dynamics Engine**.
 

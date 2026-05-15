@@ -24,7 +24,7 @@ U_COLS = ['tabaco', 'bmi_imp', 'ejer_3_por_sem', 'hipertension',
 TARGET_MAP = {
     'tabaco':          0.0,  # Quit smoking
     'bmi_imp':         0.0,  # Normalize BMI
-    'ejer_3_por_sem':  1.0,  # Start exercising
+    'ejer_3_por_sem':  0.0,  # Start exercising (0 = exercises, after inversion in prepare_frailty_data)
     'hipertension':    0.0,  # Control blood pressure
     'diabetes':        0.0,  # Manage diabetes
     'alcohol':         0.0,  # Reduce alcohol
@@ -60,12 +60,12 @@ def _extract_patient_u(latest_visit):
 
 def load_models(device):
     vae = BetaVAE(latent_dim=8).to(device)
-    vae.load_state_dict(torch.load(MODELS_DIR / 'beta_vae_model.pth',
+    vae.load_state_dict(torch.load(MODELS_DIR / 'beta_vae_model_128.pth',
                                    map_location=device, weights_only=True))
     vae.eval()
 
     ode_func = ODEFunc(control_dim=7).to(device)
-    ode_func.load_state_dict(torch.load(MODELS_DIR / 'neural_ode_high_momentum.pth',
+    ode_func.load_state_dict(torch.load(MODELS_DIR / 'neural_ode_high_momentum_128.pth',
                                         map_location=device, weights_only=True))
     ode_func.eval()
     return vae, ode_func
@@ -215,6 +215,52 @@ def run_digital_twin_intervention(cunicah, np_val, years=5.0,
     }
 
 
+def generate_llm_summary(actionable_deficits, best_intervention, base_auc, new_auc, patient_context=""):
+    import os
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        from dotenv import load_dotenv
+        
+        load_dotenv()
+        
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            return "AI summary generation skipped: GOOGLE_API_KEY not found in .env."
+
+        llm = ChatGoogleGenerativeAI(model="gemma-4-31b-it", temperature=0.0)
+        
+        prompt = f"""
+You are a clinical AI assistant. Analyze the patient data below to write a highly concise clinical summary.
+Contextualize the findings around the patient's demographics and history.
+
+Patient Context: {patient_context}
+Current Issues (Actionable Deficits): {actionable_deficits}
+
+Predicted Digital Twin Timeline:
+- Baseline 5-Year Velocity Area Under Curve (AUC): {base_auc:.2f}
+- Recommended Action Plan: {best_intervention['label']}
+- New Predicted 5-Year Velocity AUC: {new_auc:.2f}
+- Impact: {best_intervention['auc_reduction_pct']:.1f}% reduction in biological aging velocity.
+
+Provide a professional 3-sentence clinical summary of the patient's current state and your recommended action plan. Provide only the core summary.
+"""
+        response = llm.invoke(prompt)
+        content = response.content
+        if isinstance(content, list):
+            text_blocks = []
+            for c in content:
+                if isinstance(c, dict) and "text" in c:
+                    text_blocks.append(c["text"])
+                elif isinstance(c, str):
+                    text_blocks.append(c)
+            content = " ".join(text_blocks)
+        return str(content).strip()
+    except Exception as e:
+        print(f"LLM Error: {e}")
+        return "AI summary generation currently unavailable."
+
+
+
 # ── Automated Intervention Ranking Engine ─────────────────────────────
 
 def rank_interventions(cunicah, np_val, years=5.0, washout_k=2.0):
@@ -330,10 +376,21 @@ def rank_interventions(cunicah, np_val, years=5.0, washout_k=2.0):
 
     results.sort(key=lambda x: x['auc_reduction_pct'], reverse=True)
 
-    # Clean up
-    ode_func.current_u = None
-    ode_func.target_u  = None
-    ode_func.washout_k = 0.0
+    if results:
+        actionable_labels = [LABEL_MAP[a] for a in actionable]
+    else:
+        actionable_labels = []
+
+    p_raw = pd.read_csv(DATA_DIR / 'frailty_index_data.csv')
+    p_exact = p_raw[(p_raw['cunicah'] == cunicah) & (p_raw['np'] == np_val)]
+    if not p_exact.empty:
+        p_exact = p_exact.iloc[-1]
+        actual_age = p_exact.get('edad', 65.0)
+        actual_sex = "Male" if p_exact.get('sexo', 1.0) == 1.0 else "Female"
+        hist = [c for c in ['hipertension', 'diabetes', 'enf_pulm', 'artritis', 'infarto', 'embolia', 'cancer'] if p_exact.get(c) == 1.0]
+        patient_context = f"{int(actual_age)}-year-old {actual_sex} with a history of {', '.join(hist) if hist else 'no major comorbidities'}."
+    else:
+        patient_context = "Unknown demographic registry patient."
 
     return {
         't': t_np,
@@ -341,6 +398,143 @@ def rank_interventions(cunicah, np_val, years=5.0, washout_k=2.0):
         'auc_baseline': auc_baseline,
         'ranked_interventions': results,
         'patient_id': f"{int(cunicah)}/{int(np_val)}",
+        'actionable_deficits': actionable_labels,
+        'patient_context': patient_context
+    }
+
+
+def rank_custom_patient(patient_data: dict, years=5.0, washout_k=2.0):
+    """
+    Generates Twin trajectories for custom user-submitted patient data.
+    """
+    from itertools import combinations
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    vae, ode_func = load_models(device)
+
+    dataset = FrailtyDataset(DATA_DIR / 'frailty_index_data.csv', device=device)
+    df_raw = dataset.data
+
+    latest_visit = pd.Series(patient_data).apply(pd.to_numeric, errors='coerce').astype(float).fillna(0.0)
+
+    # Needs custom normalization since FrailtyDataset applies normalization globally
+    raw_df_orig = pd.read_csv(DATA_DIR / 'frailty_index_data.csv')
+    edad_mean, edad_std = raw_df_orig['edad'].mean(), raw_df_orig['edad'].std()
+    edu_mean, edu_std = raw_df_orig['educacion'].mean(), raw_df_orig['educacion'].std()
+    
+    latest_visit['edad'] = (latest_visit.get('edad', 65.0) - edad_mean) / edad_std
+    latest_visit['educacion'] = (latest_visit.get('educacion', 12.0) - edu_mean) / edu_std
+    latest_visit['sexo'] = latest_visit.get('sexo', 1.0) - 1.0
+
+    deficit_cols = dataset.deficit_cols
+    static_cols  = dataset.static_cols
+    
+    # Ensure all columns exist
+    for col in deficit_cols + static_cols:
+        if col not in latest_visit:
+            latest_visit[col] = 0.0
+
+    x_def = torch.tensor(latest_visit[deficit_cols].values, dtype=torch.float32).unsqueeze(0).to(device)
+    x_sta = torch.tensor(latest_visit[static_cols].values, dtype=torch.float32).unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        z0, _ = vae.encode(x_def, x_sta)
+    z0_np = z0.squeeze().cpu().numpy()
+
+    u_dict = _extract_patient_u(latest_visit)
+    u_baseline = torch.tensor([[u_dict[c] for c in U_COLS]], dtype=torch.float32).to(device)
+
+    actionable = []
+    for col in U_COLS:
+        idx = U_COLS.index(col)
+        current = u_baseline[0, idx].item()
+        target  = TARGET_MAP[col]
+        # Allow a small tolerance for floating point discrepancies
+        if abs(current - target) > 0.1:
+            actionable.append(col)
+
+    if not actionable:
+        print("Custom patient already meets all targets.")
+        return None
+
+    N = len(actionable)
+    max_r = N if N <= 3 else 2
+    scenarios = []
+    for r in range(1, max_r + 1):
+        for combo in combinations(actionable, r):
+            scenarios.append(list(combo))
+
+    t_span = torch.linspace(0, years, 50).to(device)
+    t_np   = t_span.cpu().numpy()
+
+    ode_func.current_u = u_baseline
+    ode_func.target_u  = None
+    ODE_WASHOUT_DEFAULT = 0.0
+    ode_func.washout_k = ODE_WASHOUT_DEFAULT
+    with torch.no_grad():
+        z_traj_base = odeint(ode_func, z0, t_span, method='rk4')
+        v_mag_base = []
+        for i, t in enumerate(t_span):
+            v_t = ode_func(t, z_traj_base[i])
+            v_mag_base.append(torch.norm(v_t, dim=-1).item())
+    v_mag_base = np.array(v_mag_base)
+    auc_baseline = np.trapz(v_mag_base, t_np)
+
+    results = []
+    for scenario in scenarios:
+        u_twin = u_baseline.clone()
+        for col in scenario:
+            idx = U_COLS.index(col)
+            u_twin[0, idx] = TARGET_MAP[col]
+
+        label = " + ".join([LABEL_MAP[c] for c in scenario])
+        u_twin_np = u_twin.squeeze().cpu().numpy()
+        maha_dist, n_match = _compute_cohort_mahalanobis(
+            z0_np, u_twin_np, df_raw, deficit_cols, static_cols, vae, device
+        )
+        confidence = "High" if maha_dist <= 3.0 else "Low (OOD)"
+
+        v_mag_twin = _simulate_single_twin(ode_func, z0, u_baseline, u_twin, t_span, washout_k)
+        auc_twin = np.trapz(v_mag_twin, t_np)
+        
+        reduction_pct = 0.0
+        if auc_baseline > 0:
+            reduction_pct = (auc_baseline - auc_twin) / auc_baseline * 100
+
+        results.append({
+            'label': label,
+            'targets': scenario,
+            'v_mag': v_mag_twin,
+            'auc': auc_twin,
+            'auc_reduction_pct': reduction_pct,
+            'mahalanobis': maha_dist,
+            'n_cohort_match': n_match,
+            'confidence': confidence,
+        })
+
+    results.sort(key=lambda x: x['auc_reduction_pct'], reverse=True)
+
+    if results:
+        actionable_labels = [LABEL_MAP[a] for a in actionable]
+    else:
+        actionable_labels = []
+
+    try:
+        actual_age = float(patient_data.get('edad', 65.0))
+        actual_sex = "Male" if float(patient_data.get('sexo', 1.0)) == 1.0 else "Female"
+        hist = [c for c in ['hipertension', 'diabetes', 'enf_pulm', 'artritis', 'infarto', 'embolia', 'cancer'] if float(patient_data.get(c, 0.0)) == 1.0]
+        patient_context = f"{int(actual_age)}-year-old {actual_sex} with a history of {', '.join(hist) if hist else 'no major comorbidities'}."
+    except Exception:
+        patient_context = "Custom patient."
+
+    return {
+        't': t_np,
+        'v_mag_baseline': v_mag_base,
+        'auc_baseline': auc_baseline,
+        'ranked_interventions': results,
+        'patient_id': "Live Inference",
+        'actionable_deficits': actionable_labels,
+        'patient_context': patient_context
     }
 
 

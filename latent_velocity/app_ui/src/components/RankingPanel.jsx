@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Award, AlertCircle, Eye, EyeOff, ChevronDown } from 'lucide-react';
 
-const RankingPanel = ({ ranking, visibleInterventions, setVisibleInterventions }) => {
+const RankingPanel = ({ ranking, visibleInterventions, setVisibleInterventions, hoveredIntervention, setHoveredIntervention }) => {
     const [showDropdown, setShowDropdown] = useState(false);
 
     if (!ranking) return null;
@@ -26,7 +26,7 @@ const RankingPanel = ({ ranking, visibleInterventions, setVisibleInterventions }
                 alignItems: 'center'
             }}>
                 <h4 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Award size={18} color="var(--accent-secondary)" /> Clinical Strategy Ranking
+                    <Award size={18} color="var(--accent-secondary)" /> Intervention Strategy Ranking
                 </h4>
 
                 {/* Dropdown Toggle for Visibility */}
@@ -98,14 +98,17 @@ const RankingPanel = ({ ranking, visibleInterventions, setVisibleInterventions }
                         {ranking.ranked_interventions.map((r, i) => (
                             <tr
                                 key={i}
+                                onMouseEnter={() => setHoveredIntervention(r.label)}
+                                onMouseLeave={() => setHoveredIntervention(null)}
                                 className={visibleInterventions.has(i) ? 'row-active' : 'row-hidden'}
                                 style={{
-                                    background: i % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'transparent',
-                                    height: '45px'
+                                    background: hoveredIntervention === r.label ? 'rgba(255, 255, 255, 0.08)' : (i % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'transparent'),
+                                    height: '45px',
+                                    cursor: 'pointer'
                                 }}
                             >
                                 <td style={tdStyle}>{i + 1}</td>
-                                <td style={{ ...tdStyle, fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <td style={{ ...tdStyle, fontWeight: 'bold', wordWrap: 'break-word', overflowWrap: 'break-word' }}>
                                     {r.label}
                                 </td>
                                 <td style={{ ...tdStyle, color: r.auc_reduction_pct > 0 ? 'var(--success)' : 'var(--danger)' }}>
@@ -128,7 +131,7 @@ const RankingPanel = ({ ranking, visibleInterventions, setVisibleInterventions }
             <div style={{ padding: '0.8rem 1rem', background: 'rgba(255, 77, 77, 0.08)', borderTop: '1px solid var(--border-glass)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <AlertCircle size={16} color="var(--accent-primary)" />
-                    <strong style={{ fontSize: '0.8rem' }}>PRIMARY CLINICAL TARGET:</strong>
+                    <strong style={{ fontSize: '0.8rem' }}>OPTIMAL INTERVENTION TARGET:</strong>
                     <span style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>{ranking.ranked_interventions[0].label}</span>
                 </div>
             </div>

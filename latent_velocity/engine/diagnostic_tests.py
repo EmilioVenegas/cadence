@@ -2,6 +2,7 @@ import torch
 import pandas as pd
 import numpy as np
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from train_vae import BetaVAE, FrailtyDataset
 from _paths import DATA_DIR, MODELS_DIR
@@ -11,16 +12,16 @@ deficit_cols = [
     'hipertension', 'diabetes', 'enf_pulm', 'artritis', 'infarto', 'embolia', 'cancer', 'salud_glob', # 8 Clinical (0-7)
     'n_abvd', 'n_aivd', 'n_mov', 'n_img', 'motoras_gruesas', 'motoras_finas', # 6 Phys (8-13)
     'deprimido', 'esfuerzo', 'intranquilo', 'triste', 'cansado', 'solo', 'feliz', 'disf_vida', 'energia', # 9 Mental (14-22)
-    'recuerdo1', 'recuerdo2', 'copiafiguras1', 'orientacion', 'serial7', 'memoria', # 6 Cog (23-28)
-    'bmi_imp', 'ejer_3_por_sem', 'tabaco', # 3 Bio (29-31)
-    'hospitalizacion', 'visita_medica' # 2 Health (32-33)
+    'recuerdo1', 'recuerdo2', 'copiafiguras1', 'copiafiguras2', 'orientacion', 'serial7', 'visualscan', 'memoria', # 8 Cog (23-30)
+    'bmi_imp', 'ejer_3_por_sem', 'tabaco', # 3 Bio (31-33)
+    'hospitalizacion', 'visita_medica' # 2 Health (34-35)
 ]
 
 domain_indices = {
     'Clinical': list(range(0, 8)),
     'Physical': list(range(8, 14)),
     'Mental': list(range(14, 23)),
-    'Cognitive': list(range(23, 29))
+    'Cognitive': list(range(23, 31))
 }
 
 def test_1_per_domain_loss(model_path, data_path, device):
@@ -112,11 +113,127 @@ def test_3_reconstruction_accuracy_r2(model_path, data_path, device):
         r2 = 1 - (avg_mse / mean_var)
         print(f"  {dom:<10}: R2={r2:.4f} ({r2*100:4.1f}% accurate)")
 
+def test_4_latent_statistics(model_path, data_path, device):
+    print("\n--- TEST 4: Latent Space Statistics ---")
+    vae = BetaVAE(latent_dim=8).to(device)
+    vae.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+    vae.eval()
+    
+    dataset = FrailtyDataset(data_path, device=device)
+    dataloader = DataLoader(dataset, batch_size=256, shuffle=False)
+    
+    all_mus = []
+    all_logvars = []
+    
+    with torch.no_grad():
+        for b_deficits, b_static in dataloader:
+            mu, log_var = vae.encode(b_deficits, b_static)
+            all_mus.append(mu.cpu().numpy())
+            all_logvars.append(log_var.cpu().numpy())
+            
+    mus = np.vstack(all_mus)
+    logvars = np.vstack(all_logvars)
+    stds = np.exp(0.5 * logvars)
+    
+    mu_means = mus.mean(axis=0)
+    mu_stds = mus.std(axis=0)
+    avg_posterior_std = stds.mean(axis=0)
+    
+    active_dims = np.sum(mu_stds > 0.1) # Dimension is active if it encodes variation
+    
+    print(f"Active Dimensions (>0.1 std): {active_dims} / {vae.latent_dim}")
+    print("\nPer-Dimension Stats (mu_mean | mu_std | avg_posterior_std):")
+    for i in range(vae.latent_dim):
+        print(f"  Z{i}: mean={mu_means[i]:.3f} | std={mu_stds[i]:.3f} | post_std={avg_posterior_std[i]:.3f}")
+
+def test_5_feature_level_r2(model_path, data_path, device):
+    print("\n--- TEST 5: Feature-Level Reconstruction Analysis ---")
+    vae = BetaVAE(latent_dim=8).to(device)
+    vae.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+    vae.eval()
+    
+    dataset = FrailtyDataset(data_path, device=device)
+    dataloader = DataLoader(dataset, batch_size=256, shuffle=False)
+    
+    all_recons = []
+    all_originals = []
+    
+    with torch.no_grad():
+        for b_deficits, b_static in dataloader:
+            recon, _, _ = vae(b_deficits, b_static)
+            all_recons.append(recon.cpu().numpy())
+            all_originals.append(b_deficits.cpu().numpy())
+            
+    recons = np.vstack(all_recons)
+    originals = np.vstack(all_originals)
+    
+    # Calculate R2 per feature
+    feature_r2 = []
+    for i in range(len(deficit_cols)):
+        mse = np.mean((recons[:, i] - originals[:, i])**2)
+        var = np.var(originals[:, i])
+        r2 = 1 - (mse / var) if var > 1e-6 else 0.0
+        feature_r2.append((deficit_cols[i], r2))
+        
+    # Sort features by R2
+    feature_r2.sort(key=lambda x: x[1], reverse=True)
+    
+    # Overall Reconstruction R2 (Unweighted Average)
+    overall_r2 = np.mean([r[1] for r in feature_r2])
+    print(f"OVERALL RECONSTRUCTION R2: {overall_r2:.4f}")
+    
+    print("\nTop 5 Best Reconstructed Features:")
+    for name, r2 in feature_r2[:5]:
+        print(f"  {name:<20}: R2={r2:.4f}")
+        
+    print("\nTop 5 Worst Reconstructed Features:")
+    for name, r2 in feature_r2[-5:]:
+        print(f"  {name:<20}: R2={r2:.4f}")
+
+def test_6_save_reconstruction_examples(model_path, data_path, device, num_samples=3):
+    print(f"\n--- TEST 6: Saving Reconstruction Examples (n={num_samples}) ---")
+    vae = BetaVAE(latent_dim=8).to(device)
+    vae.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+    vae.eval()
+    
+    dataset = FrailtyDataset(data_path, device=device)
+    dataloader = DataLoader(dataset, batch_size=num_samples, shuffle=True)
+    
+    b_deficits, b_static = next(iter(dataloader))
+    
+    with torch.no_grad():
+        recon, _, _ = vae(b_deficits, b_static)
+        
+    recon = recon.cpu().numpy()
+    orig = b_deficits.cpu().numpy()
+    
+    fig, axes = plt.subplots(num_samples, 1, figsize=(15, 4 * num_samples))
+    if num_samples == 1: axes = [axes]
+    
+    x = np.arange(len(deficit_cols))
+    
+    for i in range(num_samples):
+        axes[i].bar(x - 0.2, orig[i], width=0.4, label='Original', color='blue', alpha=0.6)
+        axes[i].bar(x + 0.2, recon[i], width=0.4, label='Reconstructed', color='red', alpha=0.6)
+        axes[i].set_xticks(x)
+        axes[i].set_xticklabels(deficit_cols, rotation=90, fontsize=8)
+        axes[i].set_title(f"Sample Patient {i+1} Reconstruction")
+        axes[i].legend()
+        axes[i].set_ylim(0, 1.1)
+        
+    plt.tight_layout()
+    save_path = "vae_reconstruction_samples.png"
+    plt.savefig(save_path)
+    print(f"Reconstruction comparison plot saved to: {save_path}")
+
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_path = str(MODELS_DIR / 'beta_vae_model.pth')
+    model_path = str(MODELS_DIR / 'beta_vae_model_128.pth')
     data_path = str(DATA_DIR / 'frailty_index_data.csv')
     
     test_1_per_domain_loss(model_path, data_path, device)
     test_2_input_variance(data_path)
     test_3_reconstruction_accuracy_r2(model_path, data_path, device)
+    test_4_latent_statistics(model_path, data_path, device)
+    test_5_feature_level_r2(model_path, data_path, device)
+    test_6_save_reconstruction_examples(model_path, data_path, device)

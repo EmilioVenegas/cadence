@@ -30,7 +30,12 @@ LAVA resolves the "irregular snapshot" problem by fitting independent GPs to eac
 
 ![GP Trajectory Smoothing](latent_velocity/plots/gp_trajectories/patient_3648_10_gp_trajectory.png)
 
-### 3. Automated Intervention Ranking
+### 3. Mortality Prediction (Survival Curves)
+LAVA's latent velocity magnitude ($||v||$) is a robust predictor of mortality. Below are the Kaplan-Meier survival curves for different velocity quartiles, showing a clear separation in clinical risk.
+
+![Survival Curves](latent_velocity/plots/km_survival_curves.png)
+
+### 4. Automated Intervention Ranking
 The Digital Twin engine simulates counterfactual scenarios, ranking lifestyle changes by their ability to reduce the 5-year velocity magnitude.
 
 ![Intervention Ranking](latent_velocity/plots/intervention_ranking/intervention_ranking.png)
@@ -145,7 +150,7 @@ npm install && npm run dev
 ## ⚙️ Installation
 
 ```bash
-git clone https://github.com/yourusername/lava-atlas.git
+git clone https://github.com/EmilioVenegas/lava-atlas.git
 cd lava-atlas
 pip install -r requirements.txt
 # Core dependencies: torch, torchdiffeq, umap-learn, plotly, sklearn

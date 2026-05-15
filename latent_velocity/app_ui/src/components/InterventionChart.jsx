@@ -23,7 +23,7 @@ ChartJS.register(
     Filler
 );
 
-const InterventionChart = ({ data, visibleInterventions }) => {
+const InterventionChart = ({ data, visibleInterventions, hoveredIntervention }) => {
     const options = {
         responsive: true,
         maintainAspectRatio: false,
@@ -33,7 +33,7 @@ const InterventionChart = ({ data, visibleInterventions }) => {
             },
             title: {
                 display: true,
-                text: `LAVA Digital Twin: Systemic Biological Aging Velocity - Patient ${data.patient_id}`,
+                text: `Predicted Aging Velocity Trajectory for Interventions - Patient ${data.patient_id}`,
                 color: '#e0e0e0',
                 font: { size: 16, weight: 'bold' }
             },
@@ -84,22 +84,29 @@ const InterventionChart = ({ data, visibleInterventions }) => {
         {
             label: `Baseline`,
             data: data.v_mag_baseline,
-            borderColor: '#ff4d4d',
+            borderColor: hoveredIntervention ? '#ff4d4d33' : '#ff4d4d',
             borderWidth: 4,
             pointRadius: 0,
             tension: 0.3,
             z: 10
         },
-        ...data.ranked_interventions.map((r, i) => ({
-            label: `${r.label}`,
-            data: r.v_mag,
-            borderColor: palette[i % palette.length],
-            borderWidth: 2,
-            borderDash: r.confidence === "High" ? [] : [5, 5],
-            pointRadius: 0,
-            tension: 0.3,
-            hidden: !visibleInterventions.has(i)
-        }))
+        ...data.ranked_interventions.map((r, i) => {
+            const isHovered = hoveredIntervention === r.label;
+            const isDimmed = hoveredIntervention && !isHovered;
+            const baseColor = palette[i % palette.length];
+            const displayColor = isDimmed ? baseColor + '33' : baseColor;
+
+            return {
+                label: `${r.label}`,
+                data: r.v_mag,
+                borderColor: displayColor,
+                borderWidth: isHovered ? 5 : 3,
+                borderDash: r.confidence === "High" ? [] : [5, 5],
+                pointRadius: 0,
+                tension: 0.3,
+                hidden: !visibleInterventions.has(i)
+            }
+        })
     ];
 
     const chartData = {
