@@ -199,29 +199,35 @@ def plot_archetypal_trajectories(df_traj_full):
     slow_p = patient_vf.iloc[0]   # most negative = improving fastest
     fast_p = patient_vf.iloc[-1]  # most positive = deteriorating fastest
     
-    m_path = str(MODELS_DIR / 'beta_vae_model_128.pth')
-    df_obs, _ = extract_latent_vectors(m_path, FI_PATH, DEVICE)
-    
-    # Optimization: Extract patient data once before the loop
+    use_latent_ode = (MODELS_DIR / 'latent_ode_model.pth').exists()
+
     slow_p_dense = df_traj_full[(df_traj_full['cunicah'] == slow_p['cunicah']) & (df_traj_full['np'] == slow_p['np'])]
     fast_p_dense = df_traj_full[(df_traj_full['cunicah'] == fast_p['cunicah']) & (df_traj_full['np'] == fast_p['np'])]
-    slow_p_obs = df_obs[(df_obs['cunicah'] == slow_p['cunicah']) & (df_obs['np'] == slow_p['np'])]
-    fast_p_obs = df_obs[(df_obs['cunicah'] == fast_p['cunicah']) & (df_obs['np'] == fast_p['np'])]
-    
+
+    if not use_latent_ode:
+        m_path = str(MODELS_DIR / 'beta_vae_model_128.pth')
+        df_obs, _ = extract_latent_vectors(m_path, FI_PATH, DEVICE)
+        slow_p_obs = df_obs[(df_obs['cunicah'] == slow_p['cunicah']) & (df_obs['np'] == slow_p['np'])]
+        fast_p_obs = df_obs[(df_obs['cunicah'] == fast_p['cunicah']) & (df_obs['np'] == fast_p['np'])]
+
+    traj_label = 'ODE' if use_latent_ode else 'GP'
+
     fig, axes = plt.subplots(2, 4, figsize=(20, 10))
     fig.suptitle(r"Archetypal Latent Trajectories ($\bar{z}_k(t)$): Fast vs Slow Ager", fontsize=18, fontweight='bold')
     axes = axes.flatten()
-    
+
     for k in range(8):
         ax = axes[k]
-        
+
         # Plot Slow
-        ax.plot(slow_p_dense['t'], slow_p_dense[f'z_mean_{k}'], color="#1f77b4", linewidth=3, label='Slow Ager (GP)')
-        ax.scatter(slow_p_obs['t'], slow_p_obs[f'z_{k}'], color="#1f77b4", marker='o', s=80, edgecolor='white', zorder=5, label='Slow Ager (Obs)')
-        
+        ax.plot(slow_p_dense['t'], slow_p_dense[f'z_mean_{k}'], color="#1f77b4", linewidth=3, label=f'Slow Ager ({traj_label})')
+        if not use_latent_ode:
+            ax.scatter(slow_p_obs['t'], slow_p_obs[f'z_{k}'], color="#1f77b4", marker='o', s=80, edgecolor='white', zorder=5, label='Slow Ager (Obs)')
+
         # Plot Fast
-        ax.plot(fast_p_dense['t'], fast_p_dense[f'z_mean_{k}'], color="#d62728", linewidth=3, label='Fast Ager (GP)')
-        ax.scatter(fast_p_obs['t'], fast_p_obs[f'z_{k}'], color="#d62728", marker='o', s=80, edgecolor='white', zorder=5, label='Fast Ager (Obs)')
+        ax.plot(fast_p_dense['t'], fast_p_dense[f'z_mean_{k}'], color="#d62728", linewidth=3, label=f'Fast Ager ({traj_label})')
+        if not use_latent_ode:
+            ax.scatter(fast_p_obs['t'], fast_p_obs[f'z_{k}'], color="#d62728", marker='o', s=80, edgecolor='white', zorder=5, label='Fast Ager (Obs)')
             
         ax.set_title(f"Latent Dimension $z_{k}$", fontsize=14)
         ax.set_xlabel("Years since baseline (t)", fontsize=11)
@@ -300,7 +306,8 @@ def plot_velocity_heatmaps(df_traj_full, df_fi, velocity_cols):
                 cbar_kws={'label': 'Pearson Correlation', 'pad': 0.02}, 
                 annot_kws={"size": 10}, linewidths=1, linecolor='white')
                 
-    plt.title(r'$\beta$-VAE Disentanglement:' + '\nLatent Velocity Component Correlation', fontsize=16, fontweight='bold', pad=20)
+    model_label = 'Latent ODE-VAE' if (MODELS_DIR / 'latent_ode_model.pth').exists() else r'$\beta$-VAE'
+    plt.title(f'{model_label} Disentanglement:\nLatent Velocity Component Correlation', fontsize=16, fontweight='bold', pad=20)
     plt.ylabel(r"Latent Velocity Component ($v_k$)", fontsize=14)
     plt.xlabel("Empirical Domain Degradation Rate", fontsize=14)
     plt.xticks(np.arange(len(domains.keys())) + 0.5, list(domains.keys()), fontsize=11, rotation=45)

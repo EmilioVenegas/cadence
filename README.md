@@ -1,157 +1,158 @@
-# 🌋 LAVA: Latent Aging Velocity Atlas
+# LAVA: Latent Aging Velocity Atlas
 ## Continuous-Time Mapping of Multi-Domain Biological Decline
 
-LAVA is a production-grade diagnostic framework designed to disentangle the complex, non-linear trajectories of human aging. By projecting multi-domain clinical deficits into a continuous latent manifold, LAVA moves beyond static "snapshots" of health to measure the instantaneous velocity of biological aging.
+LAVA is a production-grade diagnostic framework for measuring the instantaneous velocity of biological aging. It projects multi-domain clinical deficits into a continuous 8-dimensional latent manifold, extracts temporal derivatives natively through a Neural ODE, and simulates counterfactual patient trajectories to rank clinical interventions.
 
-## 🧠 Core Concept
+## Core Concept
 
-Current clinical models track aging through discrete, irregular snapshots (like the Frailty Index). They can tell you how frail a patient is *today*, but they struggle to measure *how fast* that patient is declining.
+Current clinical models track aging through discrete, irregular snapshots (like the Frailty Index). They can tell you how frail a patient is *today*, but struggle to measure *how fast* that patient is declining.
 
-LAVA was built on the premise that aging is not a state; it is a velocity. To predict mortality and biological collapse, we must calculate the mathematical derivative of a patient's health over time.
+LAVA is built on the premise that aging is not a state — it is a velocity. To predict mortality and biological collapse, we must calculate the mathematical derivative of a patient's health over time.
 
-Here is how the LAVA engine achieves this:
+The LAVA engine achieves this end-to-end through a single model — the **Latent ODE-VAE**:
 
-1. **State Compression** — We take 36 noisy, multi-domain clinical survey answers and compress them into a precise 8-dimensional mathematical coordinate representing the patient's exact biological state (β-VAE).
+1. **Sequence Encoding** — A backward GRU (RecognitionRNN) reads the patient's full observation history `{(x_t, t)}` across irregular MHAS survey waves, producing a posterior distribution `q(z₀ | x)` over their initial latent state.
 
-2. **Continuous Interpolation** — Because patients visit the clinic at highly irregular intervals (e.g., gaps of 2, then 9 years), we fit a Gaussian Process to draw a smooth, continuous curve through their latent coordinates, filling in the missing years.
+2. **Continuous Dynamics** — A Neural ODE integrates the latent state forward in time: `dz/dt = f_θ(z, u)`, where `u` is a 7D lifestyle control vector. This replaces the separate GP interpolation step — velocity is the model's native output.
 
-3. **Latent Velocity** — Leveraging the infinite differentiability of the Gaussian Process, we extract the exact analytical derivative ($\frac{dz}{dt}$) of the patient's trajectory. This gives us their instantaneous "aging velocity" at any given moment.
+3. **Reconstruction** — A decoder maps `z(t)` back to the 34-dimensional clinical deficit space at each observed wave, supervised by a weighted ELBO loss.
 
-4. **Vector Field Prognostics** — By mapping 2.37 million of these historical velocity vectors, LAVA creates a continuous dynamics map of human aging. When a new patient arrives for a single visit, we instantly place them in this vector field to see which current they are caught in, predicting their future decline.
+4. **Survival Supervision** — A dedicated RiskHead MLP learns to predict mortality risk from `μ`, trained with a Cox partial-likelihood loss. This keeps the latent geometry organized around clinical state rather than mortality norm, which is critical for faithful counterfactual simulation.
+
+5. **Digital Twin** — Given a patient's encoded `z₀` and any counterfactual control `u'(t)`, the same ODE simulates an alternate biological trajectory. Interventions are ranked by 5-year AUC velocity reduction.
+
 ## Visual Highlights
 
-### 1. The Currents of Aging (Latent Streamplots)
-LAVA translates discrete health changes into a continuous vector field. Below is a streamplot representing the **disentangled flow of Physical vs. Cognitive decline**. Each "stream" shows the most likely trajectory for a patient at that specific biological coordinate.
-
-![Disentanglement Streamplot](latent_velocity/plots/streamplots/streamplot_disentanglement.png)
-
-### 2. Clinical Smoothness (Gaussian Process Interpolation)
-LAVA resolves the "irregular snapshot" problem by fitting independent GPs to each patient's latent history. This allows us to calculate health derivatives even when years pass between clinic visits.
-
-![GP Trajectory Smoothing](latent_velocity/plots/gp_trajectories/patient_3648_10_gp_trajectory.png)
-
-### 3. Mortality Prediction (Survival Curves)
-LAVA's latent velocity magnitude ($||v||$) is a robust predictor of mortality. Below are the Kaplan-Meier survival curves for different velocity quartiles, showing a clear separation in clinical risk.
+### 1. Mortality Prediction (Survival Curves)
+LAVA's latent velocity phenotypes (Fast/Slow Ager, derived from the signed frailty-velocity projection) strongly predict mortality. The Kaplan-Meier curves show clear separation.
 
 ![Survival Curves](latent_velocity/plots/km_survival_curves.png)
 
-### 4. Automated Intervention Ranking
-The Digital Twin engine simulates counterfactual scenarios, ranking lifestyle changes by their ability to reduce the 5-year velocity magnitude.
+### 2. Automated Intervention Ranking
+The Digital Twin engine simulates counterfactual scenarios, ranking lifestyle changes by their ability to reduce 5-year velocity magnitude.
 
 ![Intervention Ranking](latent_velocity/plots/intervention_ranking/intervention_ranking.png)
 
----
+### 3. Latent Velocity Domain Disentanglement
+Correlation heatmap between Latent ODE-VAE velocity components and empirical domain degradation rates across 9 clinical domains.
 
-## 📈 Performance & Biological Validation
-
-LAVA is a high-precision prognostic engine validated against ground-truth clinical outcomes.
-
-### 1. Predictive Accuracy (Reconstruction $R^2$)
-The $\beta$-VAE captures the underlying biological signal with high fidelity across clinical domains:
-- **Physical Mobility/ADLs**: 77.8% Variance Explained
-- **Cognitive Function**: 73.7% Variance Explained
-- **Clinical Comorbidities**: 61.7% Variance Explained
-- **Overall Manifold Recovery**: 0.98 Mean Correlation
-
-### 2. Mortality Prediction (Biological Aging Velocity)
-In survival analysis (Cox Proportional Hazards), the **Latent Velocity Magnitude** ($||v||$) is a powerful predictor of 5-year mortality:
-- **Hazard Ratio**: patients in the "Fast Ager" velocity quartile (Q4) exhibit a significantly higher risk of mortality ($p < 2.3 \times 10^{-11}$) compared to the stable population.
-- **Digital Twin Accuracy**: The High-Momentum Neural ODE (default) forecasts 3-year latent trajectories with **79.0% R2** and **0.46 Velocity Correlation**.
-- **Inference Speed**: Once trained, LAVA predicts a patient's exact aging velocity and future risk in **< 2ms**, making it suitable for real-time clinical dashboards.
+![Velocity Domain Heatmap](latent_velocity/plots/velocity_domain_heatmap.png)
 
 ---
 
-## 🚀 Pipeline Overview
+## Performance & Biological Validation
 
-*For detailed mathematical formulations and architectural specifics, see the [Engine Documentation (engine/README.md)](latent_velocity/engine/README.md) and the [Digital Twin Documentation (ode-digitaltwin/README.md)](latent_velocity/ode-digitaltwin/README.md).*
+| Metric | Value |
+|---|---|
+| Cox Hazard Ratio (Fast vs Slow Ager) | **4.77** (p < 0.001) |
+| MC Uncertainty HR (mean_unc_z) | **1.93** (p < 0.001) |
+| Latent dims active (KL > free bits) | **8 / 8** |
+| Inference speed per patient | **< 2ms** |
 
-The LAVA framework operates through six modular stages:
+The **4.77× mortality hazard ratio** between Fast and Slow Ager phenotypes validates that the Latent ODE-VAE latent velocity meaningfully captures biological aging rate.
+
+---
+
+## Pipeline Overview
+
+*For mathematical detail, see the [Engine README](latent_velocity/engine/README.md) and the [Digital Twin README](latent_velocity/ode-digitaltwin/README.md).*
 
 ### 1. Data Preparation (`engine/prepare_frailty_data.py`)
-Encodes raw longitudinal survey data (MHAS) into a high-dimensional deficit space.
-- **Domains**: Clinical, Functionality, Mental Health, Cognition, and Biometrics.
-- **Processing**: Iterative MICE imputation and standardization.
+Reads raw MHAS `.sav` survey files and encodes 36 clinical deficits across 5 domains (comorbidities, ADLs, mental health, cognition, biometrics) with MICE imputation. Outputs `data/frailty_index_data.csv`.
 
-### 2. Generative Manifold Learning (`engine/train_vae.py`)
-Maps the deficit space into a low-dimensional latent manifold using a $\beta$-VAE.
-- **Weighted Loss**: Inverse-variance feature weighting to prioritize subtle symptoms (e.g., initial memory loss) over dominant comorbidity counts.
+### 2. End-to-End Latent ODE-VAE (`engine/train_latent_ode.py`)
+Trains the unified model:
+- **RecognitionRNN**: backward masked GRU encoding irregular observation sequences → `z₀` posterior
+- **LatentODEFunc**: `dz/dt = f_θ(z, u)` — MLP with SiLU activations
+- **Decoder**: `z(t)` → 34D deficit reconstruction (inverse-variance feature weighting)
+- **RiskHead**: `μ → scalar risk` for Cox partial-likelihood supervision
+- **β-annealing**: KL weight ramps from 0 → β over epochs 20–80 with per-dim free bits
 
-### 3. Longitudinal Velocity Inference (`engine/extract_velocity.py`)
-- **GP Smoothing**: Continuous interpolation of latent coordinates over time.
-- **Analytic Velocity**: Extraction of exact temporal derivatives ($\frac{dz}{dt}$).
+### 3. Velocity Extraction (`engine/extract_latent_ode_velocity.py`)
+Encodes each patient's full sequence → `z₀` distribution, then integrates the ODE on a dense time grid using 30 MC samples to propagate posterior uncertainty. Outputs the velocity dataset in the same format as the legacy GP pipeline so `clinical_validation.py` requires no changes.
 
-### 4. Digital Twin Longitudinal Forecasting (`ode-digitaltwin/`)
-Learning the continuous vector field of aging using a Neural ODE ($f(z, t, u) = \frac{dz}{dt}$).
-- **7D Exogenous Control**: Modeling interventions for Smoking, BMI, Exercise, Hypertension, Diabetes, Alcohol, and Social Engagement.
-- **Biological Washout**: Smooth $u(t)$ transitions to prevent biologically impossible "instantaneous healing."
-- **Ghost Twin Guardrail (Safety)**: Uses Mahalanobis distance to flag Out-of-Distribution (OOD) twins. **This prevents the model from recommending clinically impossible habit combinations, ensuring safe and realistic AI predictions.**
+### 4. Digital Twin Simulation (`ode-digitaltwin/digital_twin.py`)
+Auto-detects and loads the Latent ODE-VAE. Uses full-sequence encoding for `z₀`, then simulates counterfactual control trajectories with biological washout. Ghost Twin Guardrail (Mahalanobis distance) flags OOD predictions.
 
-### 5. Categorized Diagnostics (`plots/`)
-Dedicated subfolders for organized research and diagnostic review:
-- `tSNE/`: Latent space quality mappings.
-- `intervention_ranking/`: Recommended clinical pathways.
-- `digital_twin/`: Patient-specific forecast plots.
-- `latent_space/`: Global manifold anatomy (Radar, UMAP).
-- `streamplots/`: Directional flow and Phase portraits.
+### 5. Clinical Validation (`engine/clinical_validation.py`)
+Cox PH survival analysis, LMM, Kaplan-Meier curves, and latent velocity domain heatmap.
+
+### 6. Real-Time Dashboard (`app_ui/`)
+React 19 + Vite frontend calling FastAPI (`engine/server.py`) for live inference, LLM-generated action plans, and intervention trajectory visualization.
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 latent_velocity/
 │
-├── engine/                       # Core VAE pipeline & preprocessing
-├── ode-digitaltwin/              # Neural ODE & Longitudinal Simulation
-├── app_ui/                       # Real-Time Inference Dashboard (Vite/React)
-├── plots/                        # Categorized visualization outputs
+├── engine/
+│   ├── prepare_frailty_data.py       # MHAS preprocessing → frailty_index_data.csv
+│   ├── train_latent_ode.py           # Latent ODE-VAE (main model)
+│   ├── extract_latent_ode_velocity.py# MC velocity extraction
+│   ├── clinical_validation.py        # Cox PH, LMM, KM curves, heatmap
+│   ├── server.py                     # FastAPI backend
+│   ├── train_vae.py                  # Legacy β-VAE (kept for reference)
+│   └── extract_velocity.py           # Legacy GP pipeline (kept for reference)
+│
+├── ode-digitaltwin/
+│   ├── digital_twin.py               # Counterfactual simulation & intervention ranking
+│   ├── train_ode.py                  # Legacy standalone Neural ODE
+│   └── prepare_ode_data.py           # Legacy ODE training tensor prep
+│
+├── app_ui/                           # React 19 + Vite dashboard
+├── plots/                            # Visualization outputs
 │   ├── tSNE/
 │   ├── intervention_ranking/
 │   ├── digital_twin/
 │   ├── latent_space/
 │   ├── streamplots/
-│   └── gp_trajectories/
-├── models/                       # Frozen weights & trajectories
-└── data/                         # Curated datasets
+│   └── heatmaps/
+├── models/                           # Frozen weights & trajectory CSVs
+└── data/                             # Curated MHAS datasets
 ```
 
-## 🛠 Usage
+---
 
-**1. Train the Foundation (VAE + GP):**
+## Usage
+
+**1. Preprocess data:**
 ```bash
 python latent_velocity/engine/prepare_frailty_data.py
-python latent_velocity/engine/train_vae.py
-python latent_velocity/engine/extract_velocity.py
 ```
 
-**2. Train the Dynamics Engine (Neural ODE):**
+**2. Train the Latent ODE-VAE (single command replaces β-VAE + GP + ODE):**
 ```bash
-python latent_velocity/ode-digitaltwin/prepare_ode_data.py
-python latent_velocity/ode-digitaltwin/train_ode.py
+python latent_velocity/engine/train_latent_ode.py
+# Options: --epochs 150 --lambda_cox 0.15 --target_beta 0.1
 ```
 
-**3. Run Clinical Ranking (Static/CLI):**
+**3. Extract velocity trajectories:**
 ```bash
-# Output sample ranked list for a specific patient
-python latent_velocity/plots/plot_intervention_ranking.py
+python latent_velocity/engine/extract_latent_ode_velocity.py
+# Options: --n_mc 30 --t_step 0.5
 ```
 
-**4. Launch Real-Time Inference Dashboard:**
+**4. Run clinical validation:**
 ```bash
-# 1. Start Backend API Server
-cd latent_velocity
-python engine/server.py
-
-# 2. Start Frontend App (New Terminal)
-cd latent_velocity/app_ui
-npm install && npm run dev
+python latent_velocity/engine/clinical_validation.py
 ```
 
-## ⚙️ Installation
+**5. Launch the inference dashboard:**
+```bash
+# Backend
+cd latent_velocity && python engine/server.py
+
+# Frontend (new terminal)
+cd latent_velocity/app_ui && npm install && npm run dev
+```
+
+## Installation
 
 ```bash
 git clone https://github.com/EmilioVenegas/lava-atlas.git
 cd lava-atlas
 pip install -r requirements.txt
-# Core dependencies: torch, torchdiffeq, umap-learn, plotly, sklearn
+# Core: torch, torchdiffeq, lifelines, statsmodels, scikit-learn, fastapi
 ```

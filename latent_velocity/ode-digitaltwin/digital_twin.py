@@ -19,16 +19,14 @@ from train_ode import ODEFunc
 U_COLS = ['tabaco', 'bmi_imp', 'ejer_3_por_sem', 'hipertension',
           'diabetes', 'alcohol', 'social_isolation']
 
-# What "cured" means for each variable (1=bad/deficit, 0=good/healthy)
-# Exception: ejer_3_por_sem where 1=good (exercises), 0=bad (sedentary)
 TARGET_MAP = {
-    'tabaco':          0.0,  # Quit smoking
-    'bmi_imp':         0.0,  # Normalize BMI
-    'ejer_3_por_sem':  0.0,  # Start exercising (0 = exercises, after inversion in prepare_frailty_data)
-    'hipertension':    0.0,  # Control blood pressure
-    'diabetes':        0.0,  # Manage diabetes
-    'alcohol':         0.0,  # Reduce alcohol
-    'social_isolation':0.0,  # Increase social engagement
+    'tabaco':          0.0,
+    'bmi_imp':         0.0,
+    'ejer_3_por_sem':  0.0,
+    'hipertension':    0.0,
+    'diabetes':        0.0,
+    'alcohol':         0.0,
+    'social_isolation':0.0,
 }
 
 LABEL_MAP = {
@@ -58,11 +56,110 @@ def _extract_patient_u(latest_visit):
     return u_raw
 
 
+# ── Model Loading: Latent ODE-VAE (preferred) with β-VAE fallback ────
+
+def _load_latent_ode(device):
+    """Load the Latent ODE-VAE model. Returns (model, ode_func, ckpt)."""
+    from train_latent_ode import LatentODE, LatentODEDataset
+    ckpt  = torch.load(MODELS_DIR / 'latent_ode_model.pth',
+                       map_location=device, weights_only=False)
+    model = LatentODE().to(device)
+    # strict=False: old checkpoints lack risk_head weights; new ones have them
+    model.load_state_dict(ckpt['model_state'], strict=False)
+    model.eval()
+    return model, model.ode_func, ckpt
+
+
+def _build_latent_ode_z0(model, ckpt, p_data, device):
+    """
+    Encode a patient's full observation sequence with the Latent ODE-VAE encoder.
+    Uses ALL available visits (not just the latest) for the best z0 estimate.
+
+    Returns z0: (1, LATENT_DIM) posterior mean.
+    """
+    from train_latent_ode import (
+        DEFICIT_COLS, STATIC_COLS, U_COLS as _U_COLS,
+        MHAS_WAVES, N_WAVES, T_MAX, INPUT_DIM,
+    )
+
+    waves_arr = np.array(MHAS_WAVES, dtype=np.float32)
+    n_def     = len(DEFICIT_COLS)
+    n_static  = len(STATIC_COLS)
+    n_u       = len(_U_COLS)
+
+    edad_mean = ckpt['edad_mean']; edad_std = ckpt['edad_std']
+    edu_mean  = ckpt['edu_mean'];  edu_std  = ckpt['edu_std']
+
+    p_data = p_data.copy()
+    p_data['edad']      = (p_data['edad']      - edad_mean) / edad_std
+    p_data['educacion'] = (p_data['educacion'] - edu_mean)  / edu_std
+    p_data['sexo']      = p_data['sexo'] - 1.0
+    if 'social_isolation' not in p_data.columns:
+        p_data['social_isolation'] = (
+            1.0 - p_data[['asiste_club', 'voluntario']].fillna(0).max(axis=1)
+        )
+    p_data = p_data.sort_values('a_o_ent')
+    p_data['t'] = p_data['a_o_ent'] - 2001
+
+    x_grid = np.zeros((N_WAVES, n_def + n_static), dtype=np.float32)
+    u_grid = np.zeros((N_WAVES, n_u), dtype=np.float32)
+    mask   = np.zeros(N_WAVES, dtype=bool)
+
+    for _, row in p_data.iterrows():
+        t_val = row.get('t', np.nan)
+        if pd.isna(t_val):
+            continue
+        dists = np.abs(waves_arr - t_val)
+        wi    = int(np.argmin(dists))
+        if dists[wi] > 1.5:
+            continue
+        x_row = np.array([row.get(c, 0.0) for c in DEFICIT_COLS], dtype=np.float32)
+        s_row = np.array([row.get(c, 0.0) for c in STATIC_COLS],  dtype=np.float32)
+        u_row = np.array([row.get(c, 0.0) for c in _U_COLS],      dtype=np.float32)
+        np.nan_to_num(x_row, copy=False)
+        np.nan_to_num(u_row, copy=False)
+        x_grid[wi] = np.concatenate([x_row, s_row])
+        u_grid[wi] = u_row
+        mask[wi]   = True
+
+    if not mask.any():
+        # Fallback: use the most recent single visit
+        row = p_data.iloc[-1]
+        x_row = np.array([row.get(c, 0.0) for c in DEFICIT_COLS], dtype=np.float32)
+        s_row = np.array([row.get(c, 0.0) for c in STATIC_COLS],  dtype=np.float32)
+        x_grid[0] = np.concatenate([x_row, s_row])
+        mask[0]   = True
+
+    x_t    = torch.tensor(x_grid,  dtype=torch.float32).unsqueeze(0).to(device)
+    mask_t = torch.tensor(mask,    dtype=torch.bool).unsqueeze(0).to(device)
+    t_norm = torch.tensor(
+        [w / T_MAX for w in MHAS_WAVES], dtype=torch.float32
+    ).unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        mu, _ = model.encode(x_t, t_norm, mask_t)
+    return mu   # (1, 8) — posterior mean as z0
+
+
 def load_models(device):
+    """
+    Load the best available model pair: Latent ODE-VAE if trained, else β-VAE + ODE.
+    Returns (encoder_obj, ode_func) where encoder_obj exposes .encode() interface.
+    A 'model_type' attribute is set on encoder_obj to distinguish the two paths.
+    """
+    latent_ode_path = MODELS_DIR / 'latent_ode_model.pth'
+    if latent_ode_path.exists():
+        model, ode_func, ckpt = _load_latent_ode(device)
+        model.model_type = 'latent_ode'
+        model._ckpt = ckpt
+        return model, ode_func
+
+    # Fallback: original β-VAE + separate ODE
     vae = BetaVAE(input_dim=34, latent_dim=8).to(device)
     vae.load_state_dict(torch.load(MODELS_DIR / 'beta_vae_model_128.pth',
                                    map_location=device, weights_only=True))
     vae.eval()
+    vae.model_type = 'beta_vae'
 
     ode_func = ODEFunc(control_dim=7).to(device)
     ode_func.load_state_dict(torch.load(MODELS_DIR / 'neural_ode_high_momentum_128.pth',
@@ -124,13 +221,26 @@ def _compute_cohort_mahalanobis(z_now_np, u_twin_np, df_raw, deficit_cols, stati
         # Not enough data to compute Mahalanobis — flag immediately
         return float('inf'), int(n_matching)
 
-    # Encode the matching cohort through VAE to get their Z distribution
+    # Encode the matching cohort to get their Z distribution
     matching = df_raw.loc[mask]
     x_def = torch.tensor(matching[deficit_cols].values, dtype=torch.float32).to(device)
-    x_sta = torch.tensor(matching[static_cols].values, dtype=torch.float32).to(device)
-    
+    x_sta = torch.tensor(matching[static_cols].values,  dtype=torch.float32).to(device)
+
     with torch.no_grad():
-        z_cohort, _ = vae.encode(x_def, x_sta)
+        if getattr(vae, 'model_type', 'beta_vae') == 'latent_ode':
+            # Single-visit encoding: wrap as length-1 sequence
+            from train_latent_ode import MHAS_WAVES, T_MAX, N_WAVES, INPUT_DIM
+            n = x_def.size(0)
+            x_seq  = torch.zeros(n, N_WAVES, INPUT_DIM, device=device)
+            x_seq[:, 0, :x_def.size(1)] = x_def
+            x_seq[:, 0, x_def.size(1):x_def.size(1) + x_sta.size(1)] = x_sta
+            mask_seq = torch.zeros(n, N_WAVES, dtype=torch.bool, device=device)
+            mask_seq[:, 0] = True
+            t_norm = torch.tensor([w / T_MAX for w in MHAS_WAVES],
+                                   dtype=torch.float32, device=device).unsqueeze(0).expand(n, -1)
+            z_cohort, _ = vae.encode(x_seq, t_norm, mask_seq)
+        else:
+            z_cohort, _ = vae.encode(x_def, x_sta)
     z_cohort = z_cohort.cpu().numpy()
     
     # Mahalanobis distance from the cohort centroid
@@ -270,32 +380,48 @@ def rank_interventions(cunicah, np_val, years=5.0, washout_k=2.0):
     Generates all meaningful intervention scenarios, simulates each as a
     Digital Twin with biological washout, computes Velocity AUC, applies
     Ghost Twin guardrail (Mahalanobis), and returns a ranked list.
+
+    Uses the Latent ODE-VAE encoder (all patient visits) when available,
+    falling back to the β-VAE (single latest visit) otherwise.
     """
     from itertools import combinations
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    vae, ode_func = load_models(device)
+    encoder, ode_func = load_models(device)
 
-    dataset = FrailtyDataset(DATA_DIR / 'frailty_index_data.csv', device=device)
-    df_raw = dataset.data
-
-    p_data = df_raw[(df_raw['cunicah'] == cunicah) & (df_raw['np'] == np_val)]
+    df_raw_full = pd.read_csv(DATA_DIR / 'frailty_index_data.csv')
+    p_data = df_raw_full[(df_raw_full['cunicah'] == cunicah) & (df_raw_full['np'] == np_val)]
     if p_data.empty:
         print(f"Patient {cunicah}/{np_val} not found.")
         return None
 
-    latest_visit = p_data.sort_values(by='a_o_ent').iloc[-1]
+    # ── Encode z0 ──────────────────────────────────────────────────────
+    if getattr(encoder, 'model_type', 'beta_vae') == 'latent_ode':
+        with torch.no_grad():
+            z0 = _build_latent_ode_z0(encoder, encoder._ckpt, p_data, device)
+    else:
+        dataset      = FrailtyDataset(DATA_DIR / 'frailty_index_data.csv', device=device)
+        df_raw       = dataset.data
+        p_data_vae   = df_raw[(df_raw['cunicah'] == cunicah) & (df_raw['np'] == np_val)]
+        latest_visit = p_data_vae.sort_values(by='a_o_ent').iloc[-1]
+        deficit_cols = dataset.deficit_cols
+        static_cols  = dataset.static_cols
+        x_def = torch.tensor(latest_visit[deficit_cols].values, dtype=torch.float32).unsqueeze(0).to(device)
+        x_sta = torch.tensor(latest_visit[static_cols].values,  dtype=torch.float32).unsqueeze(0).to(device)
+        with torch.no_grad():
+            z0, _ = encoder.encode(x_def, x_sta)
 
-    deficit_cols = dataset.deficit_cols
-    static_cols  = dataset.static_cols
-    x_def = torch.tensor(latest_visit[deficit_cols].values, dtype=torch.float32).unsqueeze(0).to(device)
-    x_sta = torch.tensor(latest_visit[static_cols].values, dtype=torch.float32).unsqueeze(0).to(device)
-
-    with torch.no_grad():
-        z0, _ = vae.encode(x_def, x_sta)
     z0_np = z0.squeeze().cpu().numpy()
 
-    u_dict = _extract_patient_u(latest_visit)
+    # Mahalanobis guardrail uses the normalized FrailtyDataset df
+    dataset_vae  = FrailtyDataset(DATA_DIR / 'frailty_index_data.csv', device=device)
+    df_raw       = dataset_vae.data
+    deficit_cols = dataset_vae.deficit_cols
+    static_cols  = dataset_vae.static_cols
+
+    # Latest visit from raw CSV for control vector extraction
+    latest_visit = p_data.sort_values(by='a_o_ent').iloc[-1]
+    u_dict     = _extract_patient_u(latest_visit)
     u_baseline = torch.tensor([[u_dict[c] for c in U_COLS]], dtype=torch.float32).to(device)
 
     # ── Phase 8: Actionability Filter ──
@@ -355,7 +481,7 @@ def rank_interventions(cunicah, np_val, years=5.0, washout_k=2.0):
         # Phase 10: Ghost Twin Guardrail (Mahalanobis)
         u_twin_np = u_twin.squeeze().cpu().numpy()
         maha_dist, n_match = _compute_cohort_mahalanobis(
-            z0_np, u_twin_np, df_raw, deficit_cols, static_cols, vae, device
+            z0_np, u_twin_np, df_raw, deficit_cols, static_cols, encoder, device
         )
         confidence = "High" if maha_dist <= 3.0 else "Low (OOD)"
 
