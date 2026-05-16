@@ -172,13 +172,3 @@ Current results: **HR = 4.77** for Fast vs Slow Ager (p < 0.001).
 HR = \exp(\hat{\beta}_{Fast\_Ager})
 ```
 
----
-
-## 8. Legacy Pipeline (kept for reference)
-
-The original three-stage pipeline remains in the codebase:
-- `train_vae.py` — β-VAE (36D → 8D)
-- `extract_velocity.py` — per-patient GP fitting + analytic RBF derivative
-- `prepare_ode_data.py` + `train_ode.py` / `train_ode_high_momentum.py` — standalone Neural ODE trained on GP-derived velocity pairs
-
-These are not used by the current inference stack but are preserved for comparison and ablation studies.

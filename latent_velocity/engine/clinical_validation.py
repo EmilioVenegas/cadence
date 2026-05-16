@@ -11,7 +11,6 @@ import warnings
 import pyreadstat # Moved to top
 
 from _paths import DATA_DIR, MODELS_DIR, PLOTS_DIR
-from extract_velocity import extract_latent_vectors # Moved to top
 
 # Global configurations
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -199,18 +198,8 @@ def plot_archetypal_trajectories(df_traj_full):
     slow_p = patient_vf.iloc[0]   # most negative = improving fastest
     fast_p = patient_vf.iloc[-1]  # most positive = deteriorating fastest
     
-    use_latent_ode = (MODELS_DIR / 'latent_ode_model.pth').exists()
-
     slow_p_dense = df_traj_full[(df_traj_full['cunicah'] == slow_p['cunicah']) & (df_traj_full['np'] == slow_p['np'])]
     fast_p_dense = df_traj_full[(df_traj_full['cunicah'] == fast_p['cunicah']) & (df_traj_full['np'] == fast_p['np'])]
-
-    if not use_latent_ode:
-        m_path = str(MODELS_DIR / 'beta_vae_model_128.pth')
-        df_obs, _ = extract_latent_vectors(m_path, FI_PATH, DEVICE)
-        slow_p_obs = df_obs[(df_obs['cunicah'] == slow_p['cunicah']) & (df_obs['np'] == slow_p['np'])]
-        fast_p_obs = df_obs[(df_obs['cunicah'] == fast_p['cunicah']) & (df_obs['np'] == fast_p['np'])]
-
-    traj_label = 'ODE' if use_latent_ode else 'GP'
 
     fig, axes = plt.subplots(2, 4, figsize=(20, 10))
     fig.suptitle(r"Archetypal Latent Trajectories ($\bar{z}_k(t)$): Fast vs Slow Ager", fontsize=18, fontweight='bold')
@@ -219,15 +208,8 @@ def plot_archetypal_trajectories(df_traj_full):
     for k in range(8):
         ax = axes[k]
 
-        # Plot Slow
-        ax.plot(slow_p_dense['t'], slow_p_dense[f'z_mean_{k}'], color="#1f77b4", linewidth=3, label=f'Slow Ager ({traj_label})')
-        if not use_latent_ode:
-            ax.scatter(slow_p_obs['t'], slow_p_obs[f'z_{k}'], color="#1f77b4", marker='o', s=80, edgecolor='white', zorder=5, label='Slow Ager (Obs)')
-
-        # Plot Fast
-        ax.plot(fast_p_dense['t'], fast_p_dense[f'z_mean_{k}'], color="#d62728", linewidth=3, label=f'Fast Ager ({traj_label})')
-        if not use_latent_ode:
-            ax.scatter(fast_p_obs['t'], fast_p_obs[f'z_{k}'], color="#d62728", marker='o', s=80, edgecolor='white', zorder=5, label='Fast Ager (Obs)')
+        ax.plot(slow_p_dense['t'], slow_p_dense[f'z_mean_{k}'], color="#1f77b4", linewidth=3, label='Slow Ager (ODE)')
+        ax.plot(fast_p_dense['t'], fast_p_dense[f'z_mean_{k}'], color="#d62728", linewidth=3, label='Fast Ager (ODE)')
             
         ax.set_title(f"Latent Dimension $z_{k}$", fontsize=14)
         ax.set_xlabel("Years since baseline (t)", fontsize=11)
