@@ -1,15 +1,15 @@
-# LAVA: Latent Aging Velocity Atlas
+# CADENCE: Continuous Aging Dynamics Encoder via Neural Continuous Equations
 ## Continuous-Time Mapping of Multi-Domain Biological Decline
 
-LAVA is a production-grade diagnostic framework for measuring the instantaneous velocity of biological aging. It projects multi-domain clinical deficits into a continuous 8-dimensional latent manifold, extracts temporal derivatives natively through a Neural ODE, and simulates counterfactual patient trajectories to rank clinical interventions.
+CADENCE is a production-grade diagnostic framework for measuring the instantaneous velocity of biological aging. It projects multi-domain clinical deficits into a continuous 8-dimensional latent manifold, extracts temporal derivatives natively through a Neural ODE, and simulates counterfactual patient trajectories to rank clinical interventions.
 
 ## Core Concept
 
 Current clinical models track aging through discrete, irregular snapshots (like the Frailty Index). They can tell you how frail a patient is *today*, but struggle to measure *how fast* that patient is declining.
 
-LAVA is built on the premise that aging is not a state — it is a velocity. To predict mortality and biological collapse, we must calculate the mathematical derivative of a patient's health over time.
+CADENCE is built on the premise that aging is not a state — it is a velocity. To predict mortality and biological collapse, we must calculate the mathematical derivative of a patient's health over time.
 
-The LAVA engine achieves this end-to-end through a single model — the **Latent ODE-VAE**:
+CADENCE achieves this end-to-end through a single model — the **Latent ODE-VAE**:
 
 1. **Sequence Encoding** — A backward GRU (RecognitionRNN) reads the patient's full observation history `{(x_t, t)}` across irregular MHAS survey waves, producing a posterior distribution `q(z₀ | x)` over their initial latent state.
 
@@ -24,7 +24,7 @@ The LAVA engine achieves this end-to-end through a single model — the **Latent
 ## Visual Highlights
 
 ### 1. Mortality Prediction (Survival Curves)
-LAVA's latent velocity phenotypes (Fast/Slow Ager, derived from the signed frailty-velocity projection) strongly predict mortality. The Kaplan-Meier curves show clear separation.
+CADENCE's latent velocity phenotypes (Fast/Slow Ager, derived from the signed frailty-velocity projection) strongly predict mortality. The Kaplan-Meier curves show clear separation.
 
 ![Survival Curves](latent_velocity/plots/km_survival_curves.png)
 
@@ -46,10 +46,10 @@ Correlation heatmap between Latent ODE-VAE velocity components and empirical dom
 |---|---|
 | Cox Hazard Ratio (Fast vs Slow Ager) | **4.77** (p < 0.001) |
 | MC Uncertainty HR (mean_unc_z) | **1.93** (p < 0.001) |
-| Latent dims active (KL > free bits) | **8 / 8** |
+| Latent dims (no posterior collapse) | **8 / 8** |
 | Inference speed per patient | **< 2ms** |
 
-The **4.77× mortality hazard ratio** between Fast and Slow Ager phenotypes validates that the Latent ODE-VAE latent velocity meaningfully captures biological aging rate.
+The **4.77× mortality hazard ratio** between Fast and Slow Ager phenotypes validates that the CADENCE latent velocity meaningfully captures biological aging rate.
 
 ---
 
@@ -151,8 +151,8 @@ cd latent_velocity/app_ui && npm install && npm run dev
 ## Installation
 
 ```bash
-git clone https://github.com/EmilioVenegas/lava-atlas.git
-cd lava-atlas
+git clone https://github.com/EmilioVenegas/cadence.git
+cd cadence
 pip install -r requirements.txt
 # Core: torch, torchdiffeq, lifelines, statsmodels, scikit-learn, fastapi
 ```

@@ -15,7 +15,7 @@ import json
 from _paths import DATA_DIR
 from digital_twin import rank_interventions, rank_custom_patient, generate_llm_summary
 
-app = FastAPI(title="LAVA Real-Time Inference API")
+app = FastAPI(title="CADENCE Real-Time Inference API")
 
 # Enable CORS for frontend development
 app.add_middleware(

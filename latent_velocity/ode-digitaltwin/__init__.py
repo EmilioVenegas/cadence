@@ -1,1 +1,1 @@
-# LAVA Digital Twin (ODE-based) Module
+# CADENCE Digital Twin (ODE-based) Module

@@ -1,5 +1,5 @@
 """
-Centralized path resolution for the LAVA pipeline.
+Centralized path resolution for the CADENCE pipeline.
 
 All directories are computed relative to this file's location,
 so scripts work regardless of the caller's working directory.

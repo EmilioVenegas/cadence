@@ -1,0 +1,6 @@
+model,label,c_index,ci_lo,ci_hi,n
+B1,Cox — baseline FI,0.642,0.6338,0.6498,22729
+B2,Cox — FI slope (first interval),0.5472,0.5373,0.5571,22729
+B3,Cox — demographics only,0.7816,0.7749,0.788,22729
+B4,Latent encoder + Cox  [no ODE],0.78,0.7729,0.7868,22729
+LAVA,LAVA  [full model],0.8653,0.8587,0.8716,11366

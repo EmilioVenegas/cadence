@@ -12,10 +12,12 @@ Usage:
     python latent_velocity/engine/extract_latent_ode_velocity.py --t_step 0.25 --n_mc 50
 """
 
+import os
 import argparse
 import torch
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 from torchdiffeq import odeint
 from _paths import DATA_DIR, MODELS_DIR
 from train_latent_ode import (
@@ -51,11 +53,23 @@ def extract_velocity(model_path=None, csv_path=None, output_path=None,
     t_norm_ten = t_grid_ten / T_MAX
 
     records = []
+    processed_keys = set()
+    if os.path.exists(output_path):
+        try:
+            existing_df = pd.read_csv(output_path, usecols=['cunicah', 'np'])
+            processed_keys = set(zip(existing_df['cunicah'], existing_df['np']))
+            print(f"Found {len(processed_keys)} already processed patients in {output_path}. Resuming...")
+        except Exception as e:
+            print(f"Could not read existing output file: {e}")
 
-    with torch.no_grad():
-        for s in dataset.samples:
-            cunicah = s['cunicah']
-            np_val  = s['np']
+    try:
+        with torch.no_grad():
+            for s in tqdm(dataset.samples, desc="Extracting velocity"):
+                cunicah = s['cunicah']
+                np_val  = s['np']
+
+                if (cunicah, np_val) in processed_keys:
+                    continue
 
             x    = s['x'].unsqueeze(0).to(device)     # (1, N_WAVES, INPUT_DIM)
             u    = s['u'].unsqueeze(0).to(device)     # (1, N_WAVES, CONTROL_DIM)
@@ -116,10 +130,17 @@ def extract_velocity(model_path=None, csv_path=None, output_path=None,
                 row['v_uncertainty'] = float(v_unc[ti])
                 records.append(row)
 
-    df_out = pd.DataFrame(records)
-    df_out.to_csv(output_path, index=False)
-    n_patients = df_out[['cunicah', 'np']].drop_duplicates().shape[0]
-    print(f"Saved {len(records):,} rows across {n_patients:,} patients → {output_path}")
+    except KeyboardInterrupt:
+        print("\nInterrupted by user! Saving progress...")
+    finally:
+        if records:
+            df_out = pd.DataFrame(records)
+            write_header = not os.path.exists(output_path)
+            df_out.to_csv(output_path, mode='a', index=False, header=write_header)
+            n_patients = df_out[['cunicah', 'np']].drop_duplicates().shape[0]
+            print(f"Saved {len(records):,} new rows across {n_patients:,} patients → {output_path}")
+        else:
+            print("No new records to save.")
 
 
 if __name__ == '__main__':

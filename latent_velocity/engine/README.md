@@ -1,4 +1,4 @@
-# LAVA Engine: Mathematical Foundations
+# CADENCE Engine: Mathematical Foundations
 
 This document details the mathematical framework of the Latent ODE-VAE — the unified model that replaced the original β-VAE + Gaussian Process + Neural ODE three-stage pipeline.
 

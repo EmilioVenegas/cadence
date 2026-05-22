@@ -1,4 +1,4 @@
-# LAVA Digital Twin: Counterfactual Simulation & Intervention Ranking
+# CADENCE Digital Twin: Counterfactual Simulation & Intervention Ranking
 
 This module implements the **Longitudinal Simulation Engine** using the Latent ODE-VAE model. It encodes a patient's full clinical history into a latent initial condition, then integrates the ODE forward under counterfactual lifestyle controls to rank interventions.
 

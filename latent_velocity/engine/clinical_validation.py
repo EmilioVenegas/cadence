@@ -288,8 +288,7 @@ def plot_velocity_heatmaps(df_traj_full, df_fi, velocity_cols):
                 cbar_kws={'label': 'Pearson Correlation', 'pad': 0.02}, 
                 annot_kws={"size": 10}, linewidths=1, linecolor='white')
                 
-    model_label = 'Latent ODE-VAE' if (MODELS_DIR / 'latent_ode_model.pth').exists() else r'$\beta$-VAE'
-    plt.title(f'{model_label} Disentanglement:\nLatent Velocity Component Correlation', fontsize=16, fontweight='bold', pad=20)
+    # Title omitted per BMC Bioinformatics (lives in the manuscript caption).
     plt.ylabel(r"Latent Velocity Component ($v_k$)", fontsize=14)
     plt.xlabel("Empirical Domain Degradation Rate", fontsize=14)
     plt.xticks(np.arange(len(domains.keys())) + 0.5, list(domains.keys()), fontsize=11, rotation=45)

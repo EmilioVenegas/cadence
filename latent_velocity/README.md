@@ -1,6 +1,6 @@
-# 🌋 Latent Velocity Atlas: Module Overview
+# CADENCE: Module Overview
 
-This directory contains the core implementation of the LAVA project. The architecture is split into two primary functional layers: the **Foundation Engine** and the **Longitudinal Dynamics Engine**.
+This directory contains the core implementation of the CADENCE project. The architecture is split into two primary functional layers: the **Foundation Engine** and the **Longitudinal Dynamics Engine**.
 
 ## 📂 Subdirectories
 
@@ -10,7 +10,7 @@ The **Foundation Engine** handles the mapping of clinical snapshots into the lat
 - **Key Resources**: [Engine Technical Documentation](engine/README.md)
 
 ### 2. [🤖 ode-digitaltwin/](ode-digitaltwin/)
-The **Longitudinal Dynamics Engine** implements the predictive and counterfactual features of LAVA using Neural ODEs.
+The **Longitudinal Dynamics Engine** implements the predictive and counterfactual features of CADENCE using Neural ODEs.
 - **Role**: Learning the continuous vector field, simulating clinical interventions (Digital Twins), and ranking recommended treatments.
 - **Key Resources**: [Digital Twin Technical Documentation](ode-digitaltwin/README.md)
 

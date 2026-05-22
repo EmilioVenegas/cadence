@@ -65,7 +65,7 @@ def plot_intervention_ranking(cunicah, np_val):
     ax.axhline(y=q3, color='gray', linestyle='--', alpha=0.4, label='Fast Ager (Q3)')
     ax.axhline(y=q1, color='gray', linestyle=':', alpha=0.4, label='Slow Ager (Q1)')
     
-    ax.set_title(f"LAVA Digital Twin: Automated Intervention Ranking\nPatient {patient_id}",
+    ax.set_title(f"CADENCE Digital Twin: Automated Intervention Ranking\nPatient {patient_id}",
                  fontsize=14, fontweight='bold')
     ax.set_xlabel("Forecast Horizon (Years)", fontsize=12)
     ax.set_ylabel("Systemic Biological Aging Velocity ($||v||$)", fontsize=12)

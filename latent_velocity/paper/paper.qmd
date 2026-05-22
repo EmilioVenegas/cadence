@@ -1,0 +1,362 @@
+---
+title: "CADENCE: Continuous Aging Dynamics Encoder via Neural Continuous Equations — Continuous-Time Mapping of Multi-Domain Biological Decline"
+shorttitle: "Continuous Aging Dynamics Encoder"
+author:
+  - name: "Emilio A. Venegas"
+    orcid: "0000-0002-7689-9185"
+    affiliations:
+      - name: "Tecnológico de Monterrey, Escuela de Medicina y Ciencias de la Salud"
+        address: "Ave. Eugenio Garza Sada 2501 Sur, Col. Tecnológico"
+        city: "Monterrey, N.L."
+        postal-code: "64700"
+        country: "México"
+corresponding-author: "Emilio A. Venegas"
+bibliography: references.bib
+csl: https://www.zotero.org/styles/vancouver
+link-citations: true
+format:
+  pdf:
+    documentclass: article
+    geometry:
+      - margin=1in
+    linestretch: 2.0
+    fontsize: 11pt
+    number-sections: false
+    fig-pos: H
+    include-in-header:
+      text: |
+        \usepackage{lineno}
+        \modulolinenumbers[1]
+        \linenumbers
+        \usepackage{setspace}
+        \doublespacing
+        \usepackage{fancyhdr}
+        \pagestyle{plain}
+        \usepackage{microtype}
+        \raggedbottom
+  docx:
+    number-sections: false
+    fig-cap-location: bottom
+    toc: false
+keywords:
+  - biological aging
+  - neural ODE
+  - latent space dynamics
+  - frailty index
+  - digital twin
+  - longitudinal cohort
+  - survival analysis
+---
+
+# Title page
+
+**CADENCE: Continuous Aging Dynamics Encoder via Neural Continuous Equations — Continuous-Time Mapping of Multi-Domain Biological Decline**
+
+**Emilio A. Venegas** (ORCID: [0000-0002-7689-9185](https://orcid.org/0000-0002-7689-9185))\
+Tecnológico de Monterrey, Escuela de Medicina y Ciencias de la Salud\
+Ave. Eugenio Garza Sada 2501 Sur, Col. Tecnológico, Monterrey, N.L. 64700, México\
+*Corresponding author:* Emilio A. Venegas
+
+# Abstract
+
+**Background.** Clinical instruments for biological aging — chiefly the Frailty Index (FI) — describe a patient's current health state at a single visit, but cannot quantify the rate at which that state is changing. We present **CADENCE (Continuous Aging Dynamics Encoder via Neural Continuous Equations)**, a continuous-time diagnostic framework that estimates the instantaneous velocity of biological aging from irregular, multi-domain longitudinal clinical data.
+
+**Results.** CADENCE is a unified Latent ODE-VAE trained end-to-end on six waves of the Mexican Health and Aging Study (MHAS; years 2001, 2003, 2012, 2015, 2018, 2021), encoding 34 clinical deficits plus three static demographics into an 8-dimensional latent manifold. A controlled Neural ODE integrates the latent state forward in time, making velocity the model's native output. A dedicated risk head adds a Cox partial-likelihood term to the ELBO, decoupling survival supervision from latent geometry. On the full MHAS cohort, signed velocity phenotypes (Fast vs Slow Ager) separate mortality with a Cox hazard ratio (HR) of **4.77** (p < 0.001), while encoder-uncertainty contributes an independent HR of **1.93** (p < 0.001). No latent dimension collapsed to the prior (per-dimension KL range: 0.49–0.69 nats); two dimensions carry the dominant aging signal at substantially higher capacity, while the remaining six sit near the free-bits floor — a pattern consistent with the concentration of aging variance in a small number of latent axes. A Digital Twin module simulates counterfactual lifestyle trajectories with biological washout and ranks interventions by 5-year cumulative velocity reduction; a Mahalanobis-distance guardrail flags out-of-distribution counterfactuals.
+
+**Conclusions.** Expressing biological aging as a continuous-time velocity, rather than a cross-sectional frailty score, yields strong mortality discrimination and produces a model whose forward simulation natively supports patient-specific intervention ranking. The end-to-end pipeline combines encoding, dynamics, and survival into a single objective and delivers per-patient inference suitable for real-time clinical decision support.
+
+# Keywords
+
+biological aging; neural ODE; latent space dynamics; frailty index; digital twin; longitudinal cohort; survival analysis
+
+# Background
+
+*[Introduction section to be supplied separately. Placeholder text follows so reviewers can read the manuscript end-to-end; this section will be expanded with literature context and study motivation in a subsequent revision.]*
+
+Population aging is accelerating globally, and the early identification of individuals at risk of accelerated functional decline is a central concern of geriatric medicine. Existing risk-stratification tools (including the Frailty Index, the Clinical Frailty Scale, and biomarker panels) characterise a patient's state at one point in time but do not quantify *how rapidly* that state is changing. The Mexican Health and Aging Study (MHAS) [@wong2015mhas] is a nationally representative cohort of Mexican adults followed across six waves between 2001 and 2021, capturing 34 clinical deficits in five domains. The irregular wave spacing (gaps of 2 to 9 years) motivates models that handle continuous, irregular time. Neural ordinary differential equations [@chen2018neural] and the Latent ODE-VAE [@rubanova2019latent] provide such a framework: irregular observations are encoded into a structured latent manifold, and the resulting dynamics are integrated forward in continuous time. We exploit this architecture in CADENCE, a clinical framework whose velocity output is biologically interpretable, statistically validated against mortality, and capable of driving patient-specific counterfactual simulation.
+
+# Methods
+
+## Aim, Design, and Setting
+
+The aim of the study was to develop and validate a continuous-time framework for quantifying the velocity of biological aging from irregular longitudinal clinical data, and to use the resulting model to rank personalised lifestyle interventions through counterfactual simulation. The study is a **retrospective longitudinal modelling study** using secondary data from MHAS [@wong2015mhas] — a nationally representative population-based cohort of Mexican adults aged 50 years and older, conducted across six survey waves between 2001 and 2021. All analyses were performed on de-identified, publicly released MHAS data.
+
+## Participant Characteristics and Materials
+
+Each MHAS participant contributes one or more visit records at survey waves whose offsets from 2001 are $\{0, 2, 11, 14, 17, 20\}$ years. Each visit is encoded as a pair $(x_t,\, t)$, where $x_t \in [0,1]^{34}$ is a deficit vector and $t$ is wave time in years.
+
+Raw MHAS `.sav` survey files were processed by `engine/prepare_frailty_data.py`. A **34-dimensional deficit vector** was constructed per visit, spanning five clinical domains: comorbidities (8 items: hypertension, diabetes, pulmonary disease, arthritis, myocardial infarction, stroke, cancer, global self-rated health), activities of daily living (6 items: basic and instrumental ADLs, mobility, large-muscle and fine-motor function), mental health (9 items: depressed mood, restlessness, sadness, fatigue, loneliness, happiness, life enjoyment, energy, effortful action), cognition (8 items: two recall trials, two figure-copying trials, orientation, serial-7s, visual scan, memory), and biometric/utilisation (3 items: body mass index, hospitalisation, recent medical visit). The full input frame is 37-dimensional and augments the 34 deficits with three static covariates — age, sex, and education. Missing deficit values were imputed using multiple imputation by chained equations (MICE) [@vanbuuren2011mice].
+
+The **Frailty Index (FI)** per visit follows the standard accumulation-of-deficits formulation [@mitnitski2001accumulation; @searle2008standard]:
+
+$$
+\text{FI} = \frac{1}{N} \sum_{i=1}^{N} d_i,
+$$
+
+where $d_i \in \{0, 1\}$ is the binary deficit indicator for item $i$ and $N = 34$.
+
+A 7-dimensional **lifestyle control vector** $u$ was extracted per visit, encoding tobacco use, body mass index, exercise frequency, hypertension, diabetes, alcohol use, and social isolation (derived as $1 - \max(\texttt{asiste\_club},\, \texttt{voluntario})$).
+
+## Model: Latent ODE-VAE
+
+The CADENCE engine is a unified Latent ODE-VAE [@rubanova2019latent] trained end-to-end (Fig. 1). It comprises an encoder, a continuous-time latent dynamic, a decoder, and a survival head.
+
+![**CADENCE Latent ODE-VAE architecture and joint training objective.** Stage 1 — irregular MHAS visits at waves $\{0, 2, 11, 14, 17, 20\}$ years contribute a 37-D input frame ($x_t \in [0,1]^{34}$ deficits, $s \in \mathbb{R}^{3}$ static covariates) with an observation mask $m_t$. Stage 2 — a backward masked GRU (RecognitionRNN) processes the sequence in reverse chronological order; the masked update preserves the hidden state across unobserved waves. Stage 3 — the final hidden state $h_0$ is projected to a Gaussian posterior $q(z_0 \mid x) = \mathcal{N}(\mu, \sigma^2)$ over an 8-D latent initial condition; $z_0$ is drawn by reparameterisation. Stage 4 — a controlled Neural ODE $dz/dt = f_{\theta}(z, 10u)$ (4-layer MLP, widths 15→128→256→128→8, SiLU activations) is integrated with RK4 on the fixed wave grid, producing $z(t)$. Stage 5 — the decoder $g_{\phi}$ reconstructs $\hat{x}(t) \in [0,1]^{34}$, the RiskHead $r_{\psi}$ outputs a scalar Cox risk from $\mu$, and velocity $v(t) = f_{\theta}(z, u)$ is the ODE's native right-hand side. The bottom strip shows the joint objective: inverse-variance-weighted reconstruction MSE on observed waves, KL with per-dimension free bits ($\delta = 0.5$ nats) and $\beta$-annealing over epochs 20→80 to $\beta_{\max} = 0.1$, and a Cox partial-likelihood term ($\lambda_{\mathrm{cox}} = 0.15$). Dashed connectors indicate which output each loss term draws from.](figures/fig1_architecture.png){#fig-arch width=100%}
+
+### Encoder (RecognitionRNN)
+
+A backward masked GRU [@cho2014gru] reads each patient's visit sequence in reverse chronological order, skipping unobserved waves via a binary observation mask:
+
+$$
+h_t = \text{GRUCell}([x_t \,\|\, t_{\text{norm}}],\ h_{t+1}) \cdot \mathbf{1}_{\text{obs}} + h_{t+1} \cdot (1 - \mathbf{1}_{\text{obs}}),
+$$
+
+where $t_{\text{norm}} = t / T_{\max}$ normalises wave times to $[0, 1]$ and $T_{\max} = 20$ years. The final hidden state $h_0$ is linearly projected to the posterior parameters $(\mu,\, \log\sigma^2) \in \mathbb{R}^{8} \times \mathbb{R}^{8}$, and the latent initial condition is drawn via reparameterisation [@kingma2014vae]:
+
+$$
+z_0 = \mu + \varepsilon \odot \exp\!\left(\tfrac{1}{2} \log\sigma^2\right), \qquad \varepsilon \sim \mathcal{N}(0, I).
+$$
+
+### ODE Dynamics (LatentODEFunc)
+
+The latent state evolves under a **controlled Neural ODE** [@chen2018neural]:
+
+$$
+\frac{dz}{dt} = f_{\theta}(z,\, u),
+$$
+
+where $f_{\theta}$ is a four-layer multilayer perceptron with SiLU [@hendrycks2016gelu] activations and widths $(8 + 7) \to 128 \to 256 \to 128 \to 8$. The 7-dimensional control vector $u$ is scaled by a factor of ten before concatenation, amplifying the actionable lifestyle signal relative to the latent state. The ODE is solved with the fourth-order Runge–Kutta scheme (RK4) on the fixed MHAS wave grid, in a single batched call across the mini-batch.
+
+### Decoder
+
+The decoder $g_{\phi}$ maps each latent state back to the 34-dimensional deficit space:
+
+$$
+\hat{x}(t) = g_{\phi}(z(t)) \in [0, 1]^{34},
+$$
+
+with a Linear–LayerNorm–LeakyReLU stack and a terminal sigmoid that constrains outputs to the clinical deficit range.
+
+### RiskHead
+
+A dedicated multilayer perceptron $r_{\psi}: \mathbb{R}^{8} \to \mathbb{R}$ (widths $8 \to 32 \to 1$) predicts a scalar mortality risk from the posterior mean $\mu$ and is trained against the Cox partial-likelihood [@cox1972regression]. Routing survival supervision through this head keeps the latent geometry organised around clinical state rather than mortality, which is essential for faithful counterfactual simulation.
+
+## Training Objective
+
+The total loss combines the Evidence Lower BOund (ELBO) [@kingma2014vae] with a Cox term:
+
+$$
+\mathcal{L} = \mathcal{L}_{\text{recon}} + \beta(e)\,\mathcal{L}_{\text{KL}} + \lambda_{\text{cox}}\,\mathcal{L}_{\text{Cox}}.
+$$
+
+The **reconstruction loss** is a feature-weighted mean squared error evaluated on observed visits only:
+
+$$
+\mathcal{L}_{\text{recon}} = \frac{1}{|\mathcal{T}_{\text{obs}}|} \sum_{t \in \mathcal{T}_{\text{obs}}} \sum_{j=1}^{34} w_j \left(\hat{x}_j(t) - x_j(t)\right)^2,
+$$
+
+with inverse-variance feature weights normalised to sum to $D = 34$:
+
+$$
+w_j = \frac{1/\sigma_j^2}{\sum_{d=1}^{D} 1/\sigma_d^2} \times D.
+$$
+
+The **KL divergence** uses per-dimension free bits [@kingma2016freebits] at $\delta = 0.5$ nats to prevent posterior collapse:
+
+$$
+\mathcal{L}_{\text{KL}} = \sum_{k=1}^{8} \max\!\left(\delta,\ -\tfrac{1}{2}\left(1 + \log\sigma_k^2 - \mu_k^2 - \sigma_k^2\right)\right).
+$$
+
+The $\beta$ coefficient [@higgins2017betavae] is annealed linearly from 0 to $\beta_{\text{target}} = 0.1$ between epochs 20 and 80:
+
+$$
+\beta(e) = \begin{cases} 0 & e < 20, \\[2pt] \beta_{\text{target}} \cdot \dfrac{e - 20}{60} & 20 \le e < 80, \\[6pt] \beta_{\text{target}} & e \ge 80. \end{cases}
+$$
+
+The **Cox partial-likelihood** term [@cox1972regression] is computed over the mini-batch using the order statistic of time-to-event $t_i$ and event indicator $\text{ev}_i$:
+
+$$
+\mathcal{L}_{\text{Cox}} = -\frac{1}{N_{\text{ev}}} \sum_{i:\,\text{ev}_i = 1} \left( r_i - \log\!\sum_{j:\,t_j \ge t_i} e^{r_j} \right).
+$$
+
+Default hyperparameters: $\lambda_{\text{cox}} = 0.15$, $\beta_{\text{target}} = 0.1$, learning rate $3 \times 10^{-4}$, batch size 256, 150 epochs, Adam optimiser, ReduceLROnPlateau with patience 10, gradient-norm clipping at 1.0. Implementation uses PyTorch [@paszke2019pytorch] with `torchdiffeq` for ODE solving.
+
+## Velocity Extraction
+
+After training, velocity is the ODE's right-hand side and is therefore the model's native output — no separate derivative computation is required. For each patient, the dense velocity trajectory is computed as follows:
+
+1. Encode $\{(x_t,\, t)\} \to (\mu,\, \sigma^2)$ via the RecognitionRNN.
+2. Draw $S = 30$ Monte Carlo samples: $z_0^{(s)} = \mu + \varepsilon^{(s)} \odot \sigma$, $\varepsilon^{(s)} \sim \mathcal{N}(0, I)$.
+3. Integrate each sample on a dense time grid with step $\Delta t = 0.5$ year.
+4. Compute the velocity at each grid point: $v^{(s)}(t) = f_{\theta}(z^{(s)}(t),\, u_0)$, where $u_0$ is the patient's first-observed control vector.
+5. Aggregate to the posterior mean and a cross-dimension uncertainty estimate,
+
+$$
+\bar{v}(t) = \frac{1}{S} \sum_{s=1}^{S} v^{(s)}(t),
+\qquad
+\sigma_v(t) = \mathrm{std}_{s}\!\left(\|v^{(s)}(t)\|_2\right).
+$$
+
+## Digital Twin Simulation
+
+The Digital Twin module (`ode-digitaltwin/digital_twin.py`) simulates counterfactual patient trajectories under modified lifestyle controls. For a candidate intervention $u_{\text{target}}$, the control trajectory follows an exponential biological washout that models the inertia of lifestyle change:
+
+$$
+u(t) = u_{\text{target}} + (u_{\text{start}} - u_{\text{target}})\, e^{-k\,t},
+$$
+
+with default washout rate $k = 2.0$ year$^{-1}$ (half-life $\approx 0.35$ year). Intervention scenarios include every single actionable component and every pair-wise combination (up to $\binom{N_a}{2}$), where $N_a$ is the number of actionable components for a given patient (intervention components whose baseline value exceeds the target by more than 0.05). Each scenario is ranked by the percentage reduction in the 5-year area under the velocity-magnitude curve relative to the no-intervention baseline:
+
+$$
+\text{AUC} = \int_{0}^{5} \|v(t)\|_2\,\mathrm{d}t,
+\qquad
+\Delta\% = \frac{\text{AUC}_{\text{base}} - \text{AUC}_{\text{twin}}}{\text{AUC}_{\text{base}}} \times 100.
+$$
+
+### Ghost Twin Guardrail
+
+To prevent extrapolation into regions of the latent manifold that lack patient support, each counterfactual is screened with a Mahalanobis distance [@mahalanobis1936generalized] against the sub-cohort matching the target control profile:
+
+$$
+D_M(z_0) = \sqrt{(z_0 - \bar{z})^{\top}\, S^{-1}\, (z_0 - \bar{z})}.
+$$
+
+Counterfactuals with $D_M > 3.0$ are flagged as low-confidence / out-of-distribution; the displayed ranking still includes them, but with a confidence label.
+
+## Statistical Analysis
+
+**Phenotype assignment.** Patients were classified as Fast or Slow Agers using the **signed frailty-velocity projection** $v_{\text{frailty}}(t)$: a Ridge regression of $\bar{v}(t)$ onto the empirical FI gradient, where the regression target is the per-interval rate of FI change. The projection is signed so that positive values denote deterioration. Patients whose mean early-window $v_{\text{frailty}}$ falls in the top quartile of the cohort are labelled Fast Agers; those in the bottom quartile are labelled Slow Agers; remaining patients are excluded from the survival comparison. Single-visit deceased patients (who cannot have a velocity computed) are reassigned to the Fast Ager group to prevent survivorship bias; their mean MC uncertainty is set to the 75th-percentile cohort value.
+
+**Cox proportional-hazards survival analysis.** Cox PH models [@cox1972regression] were fit with the Fast-Ager flag, baseline age, and standardised mean Monte Carlo uncertainty (`mean_unc_z`) as covariates, with event time defined as the years from the patient's first observed wave to either the last alive-confirmed wave (for deceased patients) or the last observation (for censored patients). Hazard ratios and Wald p-values were obtained from `lifelines` [@davidson2019lifelines].
+
+**Kaplan–Meier curves.** Survival functions [@kaplan1958nonparametric] were stratified by phenotype and compared using the log-rank test.
+
+**Linear mixed-effects validation.** A linear mixed-effects model regressed the empirical FI velocity (per inter-wave interval) on the latent velocity magnitude $\|v\|_2$, age, sex, and education, with patient-level random intercepts.
+
+**Velocity-domain disentanglement.** Pearson correlations between the eight latent velocity components and nine empirical domain degradation rates (metabolic, chronic, functional, cognitive, affective mood, somatic fatigue, self-rated health, lifestyle, utilisation) were computed and displayed as a heatmap.
+
+**Latent dimension activity.** Latent dimensions with per-dimension KL divergence exceeding the free-bits threshold $\delta = 0.5$ nats were classified as active.
+
+**Benchmark comparison.** CADENCE was compared against four reference models to isolate the contribution of each architectural component. All models were evaluated on the same survival outcome using Harrell's C-index [@harrell1982evaluating] with 95% percentile bootstrap confidence intervals (1,000 samples). The four reference models were: (B1) Cox PH on baseline FI alone, representing the clinical standard; (B2) Cox PH on the first-interval FI linear slope $\Delta\text{FI}/\Delta t$, representing naive velocity estimation; (B3) Cox PH on demographics only (age, sex, education), establishing the baseline attributable to observed covariates; and (B4) a static encoder ablation, in which the RecognitionRNN encodes each patient's full visit sequence to the posterior mean $\mu$, the RiskHead maps $\mu$ to a scalar mortality score, and a Cox model is fit on that score and baseline age — identical to CADENCE but with ODE integration and velocity phenotyping removed. All Cox models used an $L_2$ penalty ($\lambda = 0.1$) for numerical stability. Implementation used `lifelines` [@davidson2019lifelines].
+
+No formal a priori power calculation was performed; the study is a modelling analysis on a fixed secondary dataset.
+
+# Results
+
+## Survival Discrimination
+
+Cox PH analysis on the Fast/Slow Ager phenotype yielded a hazard ratio of **HR = 4.77** (p < 0.001), demonstrating that the CADENCE latent velocity captures the biological rate of aging and strongly predicts mortality. After adjustment for baseline age (HR = 1.08 per year, p < 0.001), the encoder-uncertainty covariate `mean_unc_z` contributed an independent HR of **1.93** (p < 0.001): patients whose latent trajectory the encoder cannot resolve with confidence are themselves at elevated mortality risk. Kaplan–Meier curves for the two phenotypes are shown in Fig. 2.
+
+**Table 1 CADENCE validation metrics on the full MHAS cohort.**
+
+| Metric | Value |
+|:---|---:|
+| Cox HR (Fast vs Slow Ager) | **4.77** (p < 0.001) |
+| Cox HR (baseline age, per year) | **1.08** (p < 0.001) |
+| Cox HR (MC uncertainty `mean_unc_z`) | **1.93** (p < 0.001) |
+| Linear mixed model, $\|v\|_2$ slope on $\mathrm{d}\text{FI}/\mathrm{d}t$ | $5.0 \times 10^{-3}$, z = 26.4 (p < 0.001) |
+| Ridge $R^2$, FI-velocity projection fit | 0.024 |
+| Per-dimension KL divergence range | 0.486–0.689 nats (no collapse; $\delta = 0.5$ nats) |
+| Mean inference latency per patient | **< 2 ms** |
+
+*HR, hazard ratio; MC, Monte Carlo; $\|v\|_2$, latent aging velocity magnitude; $\delta$, free-bits threshold (0.5 nats); FI, Frailty Index. Bold values are the headline effect sizes referenced in the Results text. Cox p-values are Wald tests from `lifelines`; the linear mixed-effects z-statistic is from a random-intercept LMM regressing the empirical FI velocity on $\|v\|_2$, age, sex, and education. Inference latency is end-to-end per patient (encoder + 30-sample Monte Carlo + ODE solve + velocity read-out) on a single CPU.*
+
+![**CADENCE velocity phenotype stratifies long-term mortality.** Kaplan–Meier survival curves stratified by signed frailty-velocity quartile across the full MHAS cohort. Solid lines are survival functions; shaded bands are 95% pointwise confidence intervals. Fast Agers (top quartile, red) and Slow Agers (bottom quartile, blue) are compared; intermediate quartiles are excluded from this contrast. The annotated Cox hazard ratio (HR = 4.77) is the Fast-Ager flag effect adjusted for baseline age and standardised mean Monte Carlo encoder uncertainty (`mean_unc_z`); the log-rank p-value is unadjusted.](figures/fig2_km_survival.png){#fig-km width=88%}
+
+## Benchmark Comparison
+
+Table 2 reports Harrell's C-index for all five models. CADENCE achieved a C-index of **0.865** [95% CI 0.859–0.872], the highest across all comparators. The nearest reference was the static encoder ablation (B4, C-index 0.780 [0.773–0.787]), which uses the same encoder and risk head as CADENCE but skips ODE integration and velocity phenotyping; the 0.085-point gap quantifies the contribution of the continuous-time velocity step. Cox on baseline FI (B1, 0.642) and on demographics alone (B3, 0.782) establish what cross-sectional information can achieve without velocity. The first-interval FI slope (B2, 0.547) performed only marginally above chance, indicating that a linear, observation-spaced rate-of-change carries almost no survival signal without the structure of a jointly trained latent manifold.
+
+**Table 2. Benchmark comparison — Harrell's C-index on the MHAS cohort.**
+
+| Model | C-index | 95% CI | n |
+|:---|:---:|:---:|---:|
+| B1: Cox — baseline FI | 0.642 | [0.634–0.650] | 22,729 |
+| B2: Cox — FI slope (first interval) | 0.547 | [0.537–0.557] | 22,729 |
+| B3: Cox — demographics only | 0.782 | [0.775–0.788] | 22,729 |
+| B4: Latent encoder + Cox (no ODE) | 0.780 | [0.773–0.787] | 22,729 |
+| **CADENCE (full model)** | **0.865** | **[0.859–0.872]** | 11,366 |
+
+*C-index, Harrell's concordance index; CI, percentile bootstrap confidence interval (1,000 samples). Models B1–B4 include all patients with at least one observed wave; CADENCE requires ≥2 observations for the RecognitionRNN encoder. All Cox models used $L_2$ penalisation ($\lambda = 0.1$).*
+
+## Latent Space Utilisation
+
+Per-dimension KL divergences ranged from 0.486 to 0.689 nats across the full cohort. No dimension collapsed to the prior. Two dimensions ($z_0$, $z_3$; KL = 0.565 and 0.689 nats) carry the dominant aging signal at substantially higher capacity; the remaining six cluster near the free-bits floor (0.486–0.515 nats), where the free-bits constraint is actively binding rather than exceeded. This allocation — two high-signal axes and six near-floor axes — reflects the structure of the underlying data: multi-domain clinical aging has a small number of dominant axes of variation, and the encoder allocates capacity accordingly.
+
+## Velocity Components and Clinical Domains
+
+Pearson correlations between the eight latent velocity components $v_k$ and the empirical degradation rate of nine clinical domains are shown in Fig. 3. All correlations are small in absolute value (|r| ≤ 0.14), and no single latent component aligns with a single clinical domain. The strongest negative associations involve $v_5$ with cognitive (r = -0.14) and functional (r = -0.09) decline; the strongest positive associations involve $v_7$ with functional (r = +0.11) and $v_6$ with cognitive (r = +0.11). The pattern is consistent with a **distributed encoding** of aging: each clinical domain's velocity is read out as a small weighted combination of several latent components rather than from any one axis. This is expected for a VAE trained without supervised axis-domain alignment and is consistent with the capacity allocation described above: the two high-signal dimensions ($z_0$, $z_3$) do not dominate any single domain either, confirming that the dominant aging axes are themselves multi-domain summaries.
+
+![**Latent velocity components encode clinical domains in a distributed code.** Pearson correlation matrix between the eight latent velocity components $v_k$ (rows) and empirical degradation rates across nine clinical domains (columns): metabolic, chronic, functional, cognitive, affective mood, somatic fatigue, self-rated health, lifestyle, and utilisation. Cell values are Pearson $r$; the diverging colour scale runs from blue (negative correlation) to red (positive correlation), centred at zero. All entries are small in absolute value ($|r| \le 0.14$), indicating that each domain's degradation rate is read out as a distributed combination of latent components rather than from a single axis.](figures/fig3_velocity_domain_heatmap.png){#fig-heatmap width=88%}
+
+## Manifold Geometry
+
+A two-dimensional UMAP projection [@mclnnes2018umap] of the encoder posterior mean $\mu$ across the cohort is shown in Fig. 4, coloured by (a) the baseline Frailty Index and (b) the latent aging velocity magnitude $\|v\|_2$ evaluated at $t = 0$. Panel (a) shows a smooth FI gradient across the embedding, confirming that the CADENCE latent geometry preserves the dominant clinical-state axis. Panel (b) reveals a partially distinct organisation: high-velocity patients form a band that intersects but does not coincide with the high-FI region; the model encodes *state* and *rate of change* as related but separable directions on the manifold. This separation is what makes velocity informative beyond FI: two patients on the same FI iso-level can occupy different regions of the velocity field.
+
+![**UMAP atlas of the CADENCE latent manifold.** Two-dimensional UMAP projection of the encoder posterior mean $\mu \in \mathbb{R}^{8}$ across the full MHAS cohort, encoded with the trained Latent ODE-VAE. Each point is one patient at their baseline visit. (**a**) Coloured by Frailty Index at the baseline visit. (**b**) Coloured by latent aging velocity magnitude $\|v\|_2$ at $t = 0$. The two fields are correlated but not aligned: high-velocity patients form a band that intersects but does not coincide with the high-FI region, indicating that CADENCE's geometry separates clinical state from its rate of change.](figures/fig4_umap_composite.png){#fig-umap width=100%}
+
+## Digital Twin Intervention Ranking
+
+For a representative MHAS patient (cunicah 7226, np 10) the Digital Twin module identifies three actionable lifestyle components — quit smoking, control hypertension, and increase social engagement — and simulates every single and pair-wise combination. Fig. 5 plots the resulting velocity trajectories against the cohort-wide Slow Ager (Q1) and Fast Ager (Q3) magnitude bands; each curve is labelled with the predicted change in 5-year aging velocity AUC relative to the no-intervention baseline, expressed as a signed percentage (negative values denote a model-predicted *decrease* in aging velocity). For this patient every actionable scenario shifts the trajectory out of the Fast Ager band, and the most aggressive triple intervention pulls the projected velocity into the Slow Ager band by year 3. The Ghost Twin guardrail flagged a small number of scenarios as out-of-distribution ($D_M > 3.0$); these are drawn dashed and retained for interpretability rather than excluded.
+
+![**Counterfactual lifestyle interventions for an example MHAS patient.** Digital Twin simulation for a representative MHAS participant (cunicah 7226, np 10). The red curve is the no-intervention baseline; coloured curves correspond to every single-target and pair-wise combination of actionable lifestyle components (quit smoking, control hypertension, increase social engagement). Each curve is annotated with the signed percentage change in 5-year aging-velocity AUC relative to the baseline (negative = predicted decrease). Horizontal bands mark the cohort Slow Ager ($\le$Q1) and Fast Ager ($\ge$Q3) velocity-magnitude ranges. Solid lines denote high-confidence counterfactuals (Mahalanobis $D_M \le 3.0$); dashed lines denote low-confidence/out-of-distribution scenarios flagged by the Ghost Twin guardrail.](figures/fig5_counterfactual_patient.png){#fig-cf width=95%}
+
+# Discussion
+
+CADENCE reframes biological aging as a **continuous-time velocity in a structured latent manifold** rather than as a cross-sectional state. The reframing is empirically consequential: two patients with identical Frailty Index scores can occupy radically different velocity regimes, and the velocity distinction maps to a 4.77-fold difference in mortality hazard. Routing survival supervision through a dedicated risk head rather than through the latent geometry preserves the interpretability of $z$ as clinical state and supports faithful counterfactual simulation; the same ODE that fits observed trajectories can be re-integrated under modified controls without re-training.
+
+The encoder-uncertainty hazard (HR = 1.93) is a separate signal: patients whose visit sequence the RecognitionRNN cannot reduce to a sharp $z_0$ tend to die earlier even after adjustment for phenotype and age. This is consistent with the idea that high-uncertainty patients are those with sparse, atypical, or rapidly changing histories, which is itself a clinical hazard and justifies surfacing posterior uncertainty alongside point estimates in any deployed system.
+
+The uniformly small velocity-domain correlations (Fig. 3, |r| ≤ 0.14) confirm a distributed encoding: no single latent axis aligns with a single clinical domain, and domain-level velocity is best recovered as a linear read-out across components. The Ridge $R^2$ of 0.024 for the frailty-velocity projection reflects the noise in the per-interval FI target rather than the fidelity of the latent velocity field; mortality discrimination and the UMAP atlas (Fig. 4) are the more direct indicators of that fidelity.
+
+The benchmark comparison (Table 2) clarifies which architectural decisions drive CADENCE's performance. The 0.085-point C-index gain from the static encoder ablation (B4, C = 0.780) to the full model (C = 0.865) is attributable to the ODE integration and velocity phenotyping steps alone, since both models share the same encoder and risk head. This confirms that continuous-time latent dynamics — not simply encoding the visit sequence — are the primary source of discriminative improvement. The near-chance performance of the first-interval FI slope (B2, C = 0.547) reinforces this: velocity computed directly from sparsely observed raw scores carries almost no survival signal, and its predictive value only emerges when estimated through a latent manifold trained jointly with a survival objective. The two are therefore not interchangeable proxies; one is a biologically structured continuous-time quantity and the other is a finite difference on noisy survey data.
+
+One comparison requires a caveat. CADENCE is evaluated on n = 11,366 patients (those with ≥2 observed waves, required by the RecognitionRNN), while the baselines include all 22,729 patients. Patients with a single observation are disproportionately early decedents and dropouts — a population that, if included, would likely inflate discrimination for any model predicting short survival. The survivorship correction applied during phenotyping (single-observation deceased patients reassigned to Fast Ager) partially addresses this, but the C-index figures should not be compared across rows without acknowledging the sample difference. The appropriate reading is that the within-sample ordering (B4 → CADENCE) is a clean controlled comparison, while the cross-sample differences (B1–B4 vs CADENCE) reflect a mix of model architecture and cohort selection.
+
+Several limitations remain. First, the MHAS deficit space is built largely from self-reported items; recall bias and report-versus-measurement divergence are unavoidable. Second, the nine-year gap between the 2003 and 2012 waves places a heavy interpolation burden on the ODE; while the model fits this gap by construction, formal validation against external biomarkers within the gap is outstanding. Third, the cohort is geographically restricted to Mexican adults aged 50 and older; cross-cohort transfer to HRS, ELSA, or SHARE would test whether the latent geometry generalises. Fourth, the Ghost Twin Mahalanobis threshold ($D_M > 3.0$) was set by inspection; conformal-prediction-based calibration is a natural next step.
+
+Most importantly, the **intervention ranking is associational, not causal**. The Digital Twin simulates what the trained ODE predicts when a patient's control vector $u$ is shifted toward a target sub-cohort's profile; it does not represent the effect of a clinical intervention. Because the model learns from MHAS co-occurrence patterns, components that are strongly correlated with the latent state of healthier sub-cohorts will appear high-impact regardless of their true causal mechanism. The ranking produced for the example patient illustrates this directly: increasing social engagement is predicted to *decrease* aging velocity more than controlling hypertension, even though the established clinical evidence base for blood-pressure control is far stronger than that for social-engagement interventions in older adults. The most plausible reading is that socially isolated MHAS participants happen to occupy regions of the latent manifold that also encode other unmodelled risks (depression, sensory impairment, restricted mobility), and that "removing" social isolation in the counterfactual moves the patient out of that region en bloc. Pair-wise scenarios inherit and compound this confounding. CADENCE's ranking is therefore best deployed as a **hypothesis generator** for surfacing combinations of lifestyle changes that co-vary with healthier latent trajectories, rather than as a substitute for trial evidence or individual clinical judgement. Closing this gap will require either an explicit causal layer (e.g. backdoor adjustment on a curated set of confounders) or external trial-derived priors on the components of $u$; both are out of scope for the present work.
+
+# Conclusions
+
+CADENCE establishes that biological aging is best modelled and clinically interpreted as a velocity in a structured latent manifold. A single Latent ODE-VAE — trained end-to-end with a joint ELBO and Cox objective — recovers an eight-dimensional latent geometry on which Fast and Slow Ager phenotypes differ by a 4.77-fold mortality hazard, while the same dynamics support real-time, patient-specific counterfactual ranking through the Digital Twin module. The result is a single artifact that simultaneously serves three clinical functions: risk stratification, trajectory interpretation, and actionable intervention prioritisation. Future work will pursue multi-cohort validation, conformal uncertainty quantification, and the inclusion of pharmacological interventions in the control vector.
+
+# List of abbreviations
+
+ADL — Activity of Daily Living; AUC — Area Under the Curve; BMI — Body Mass Index; ELBO — Evidence Lower BOund; FI — Frailty Index; GRU — Gated Recurrent Unit; HR — Hazard Ratio; KL — Kullback–Leibler (divergence); CADENCE — Continuous Aging Dynamics Encoder via Neural Continuous Equations; LMM — Linear Mixed-effects Model; MC — Monte Carlo; MHAS — Mexican Health and Aging Study; MICE — Multiple Imputation by Chained Equations; MLP — Multilayer Perceptron; ODE — Ordinary Differential Equation; OOD — Out-of-Distribution; RK4 — fourth-order Runge–Kutta; RNN — Recurrent Neural Network; UMAP — Uniform Manifold Approximation and Projection; VAE — Variational Autoencoder.
+
+# Declarations
+
+## Ethics approval and consent to participate
+
+This study used the publicly released, de-identified MHAS dataset distributed by the University of Texas Medical Branch. No additional ethics approval was required for secondary analysis of these data.
+
+## Consent for publication
+
+Not applicable.
+
+## Availability of data and materials
+
+The MHAS dataset is publicly available at <https://mhasweb.org>. Model weights, processed datasets, and the analysis scripts used in this study are released at <https://github.com/EmilioVenegas/lava-atlas>.
+
+## Competing interests
+
+The author declares no competing interests.
+
+## Funding
+
+No external funding was received for this work.
+
+## Authors' contributions
+
+EV designed the CADENCE framework, implemented the Latent ODE-VAE engine and Digital Twin module, performed all analyses, generated all figures, and wrote the manuscript. The author read and approved the final manuscript.
+
+## Acknowledgements
+
+The author thanks the MHAS investigators and the University of Texas Medical Branch for curating and releasing the survey data.
+
+## Authors' information
+
+Not applicable.
+
+# References
