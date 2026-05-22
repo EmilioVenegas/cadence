@@ -87,9 +87,9 @@ def fig1_architecture():
     term draws from. Tensor shapes, MLP widths, integration scheme, and
     free-bits / β-annealing / Cox weighting are all displayed.
     """
-    fig, ax = plt.subplots(figsize=(16, 9.8))
+    fig, ax = plt.subplots(figsize=(16, 7.9))
     ax.set_xlim(0, 16)
-    ax.set_ylim(0, 10.0)
+    ax.set_ylim(0, 7.9)
     ax.axis("off")
 
     C_DATA   = "#ecf3fb"
@@ -153,7 +153,7 @@ def fig1_architecture():
     # GRU chain — 4 explicit cells (t=20, t=17, …, t=0) with an ellipsis in
     # the middle to imply the full 6-wave sequence without crowding the box.
     cell_y    = 5.65
-    cell_w    = 0.58
+    cell_w    = 0.5
     cell_h    = 0.50
     cell_data = [
         (3.40, "GRU\n$t{=}20$"),
@@ -200,7 +200,7 @@ def fig1_architecture():
             ha="center", va="center", fontsize=8.6, style="italic", color="#444")
 
     # =========================================================================
-    # Stage 3 — Latent posterior + reparameterisation
+    # Stage 3 — Latent posterior + reparameterization
     # =========================================================================
     stage3 = FancyBboxPatch((6.55, 2.4), 2.5, 5.3,
                             boxstyle="round,pad=0.04,rounding_size=0.15",
@@ -222,7 +222,7 @@ def fig1_architecture():
             r"$z_0 = \mu + \varepsilon \odot \sigma$" "\n"
             r"$\varepsilon \sim \mathcal{N}(0, I_8)$",
             ha="center", va="center", fontsize=9.4, color=DARK)
-    ax.text(7.8, 3.85, "reparameterisation",
+    ax.text(7.8, 3.85, "reparameterization",
             ha="center", va="center", fontsize=8.6, style="italic", color="#444")
     ax.text(7.8, 3.30, r"$z_0 \in \mathbb{R}^{8}$",
             ha="center", va="center", fontsize=10.0, color=DARK,

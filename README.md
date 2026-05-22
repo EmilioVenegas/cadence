@@ -1,7 +1,7 @@
-# CADENCE: Continuous Aging Dynamics Encoder via Neural Continuous Equations
-## Continuous-Time Mapping of Multi-Domain Biological Decline
+# CADENCE: Continuous Aging Dynamics Encoder via Neural ODEs
+## Mapping Multi-Domain Biological Decline
 
-CADENCE is a production-grade diagnostic framework for measuring the instantaneous velocity of biological aging. It projects multi-domain clinical deficits into a continuous 8-dimensional latent manifold, extracts temporal derivatives natively through a Neural ODE, and simulates counterfactual patient trajectories to rank clinical interventions.
+CADENCE is a diagnostic framework for measuring the instantaneous velocity of biological aging. It projects multi-domain clinical deficits into a continuous 8-dimensional latent manifold, extracts temporal derivatives natively through a Neural ODE, and simulates counterfactual patient trajectories to rank clinical interventions.
 
 ## Core Concept
 
@@ -9,7 +9,7 @@ Current clinical models track aging through discrete, irregular snapshots (like 
 
 CADENCE is built on the premise that aging is not a state — it is a velocity. To predict mortality and biological collapse, we must calculate the mathematical derivative of a patient's health over time.
 
-CADENCE achieves this end-to-end through a single model — the **Latent ODE-VAE**:
+CADENCE achieves this through a single model — the **Latent ODE-VAE**:
 
 1. **Sequence Encoding** — A backward GRU (RecognitionRNN) reads the patient's full observation history `{(x_t, t)}` across irregular MHAS survey waves, producing a posterior distribution `q(z₀ | x)` over their initial latent state.
 
@@ -28,8 +28,8 @@ CADENCE's latent velocity phenotypes (Fast/Slow Ager, derived from the signed fr
 
 ![Survival Curves](latent_velocity/plots/km_survival_curves.png)
 
-### 2. Automated Intervention Ranking
-The Digital Twin engine simulates counterfactual scenarios, ranking lifestyle changes by their ability to reduce 5-year velocity magnitude.
+### 2. Intervention Ranking
+The Digital Twin simulates counterfactual scenarios and ranks lifestyle changes by their 5-year velocity-magnitude reduction.
 
 ![Intervention Ranking](latent_velocity/plots/intervention_ranking/intervention_ranking.png)
 
@@ -60,8 +60,8 @@ The **4.77× mortality hazard ratio** between Fast and Slow Ager phenotypes vali
 ### 1. Data Preparation (`engine/prepare_frailty_data.py`)
 Reads raw MHAS `.sav` survey files and encodes 36 clinical deficits across 5 domains (comorbidities, ADLs, mental health, cognition, biometrics) with MICE imputation. Outputs `data/frailty_index_data.csv`.
 
-### 2. End-to-End Latent ODE-VAE (`engine/train_latent_ode.py`)
-Trains the unified model:
+### 2. Latent ODE-VAE (`engine/train_latent_ode.py`)
+Trains the joint model:
 - **RecognitionRNN**: backward masked GRU encoding irregular observation sequences → `z₀` posterior
 - **LatentODEFunc**: `dz/dt = f_θ(z, u)` — MLP with SiLU activations
 - **Decoder**: `z(t)` → 34D deficit reconstruction (inverse-variance feature weighting)
@@ -77,8 +77,8 @@ Auto-detects and loads the Latent ODE-VAE. Uses full-sequence encoding for `z₀
 ### 5. Clinical Validation (`engine/clinical_validation.py`)
 Cox PH survival analysis, LMM, Kaplan-Meier curves, and latent velocity domain heatmap.
 
-### 6. Real-Time Dashboard (`app_ui/`)
-React 19 + Vite frontend calling FastAPI (`engine/server.py`) for live inference, LLM-generated action plans, and intervention trajectory visualization.
+### 6. Inference Dashboard (`app_ui/`)
+React 19 + Vite frontend calling FastAPI (`engine/server.py`) for per-patient inference, LLM-generated action plans, and intervention trajectory visualization.
 
 ---
 
