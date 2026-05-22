@@ -69,7 +69,7 @@ Trains the unified model:
 - **β-annealing**: KL weight ramps from 0 → β over epochs 20–80 with per-dim free bits
 
 ### 3. Velocity Extraction (`engine/extract_latent_ode_velocity.py`)
-Encodes each patient's full sequence → `z₀` distribution, then integrates the ODE on a dense time grid using 30 MC samples to propagate posterior uncertainty. Outputs the velocity dataset in the same format as the legacy GP pipeline so `clinical_validation.py` requires no changes.
+Encodes each patient's full sequence → `z₀` distribution, then integrates the ODE on a dense time grid using 30 MC samples to propagate posterior uncertainty. Outputs `latent_velocity_trajectory_128.csv` — the velocity dataset consumed by `clinical_validation.py` and `benchmark.py`.
 
 ### 4. Digital Twin Simulation (`ode-digitaltwin/digital_twin.py`)
 Auto-detects and loads the Latent ODE-VAE. Uses full-sequence encoding for `z₀`, then simulates counterfactual control trajectories with biological washout. Ghost Twin Guardrail (Mahalanobis distance) flags OOD predictions.
@@ -88,29 +88,32 @@ React 19 + Vite frontend calling FastAPI (`engine/server.py`) for live inference
 latent_velocity/
 │
 ├── engine/
-│   ├── prepare_frailty_data.py       # MHAS preprocessing → frailty_index_data.csv
-│   ├── train_latent_ode.py           # Latent ODE-VAE (main model)
-│   ├── extract_latent_ode_velocity.py# MC velocity extraction
-│   ├── clinical_validation.py        # Cox PH, LMM, KM curves, heatmap
-│   ├── server.py                     # FastAPI backend
-│   ├── train_vae.py                  # Legacy β-VAE (kept for reference)
-│   └── extract_velocity.py           # Legacy GP pipeline (kept for reference)
+│   ├── prepare_frailty_data.py        # MHAS preprocessing → frailty_index_data.csv
+│   ├── train_latent_ode.py            # Latent ODE-VAE (main model)
+│   ├── extract_latent_ode_velocity.py # MC velocity extraction
+│   ├── clinical_validation.py         # Cox PH, LMM, KM curves, heatmap
+│   ├── benchmark.py                   # B1–B4 vs CADENCE C-index benchmark
+│   └── server.py                      # FastAPI backend
 │
 ├── ode-digitaltwin/
-│   ├── digital_twin.py               # Counterfactual simulation & intervention ranking
-│   ├── train_ode.py                  # Legacy standalone Neural ODE
-│   └── prepare_ode_data.py           # Legacy ODE training tensor prep
+│   └── digital_twin.py                # Counterfactual simulation & intervention ranking
 │
-├── app_ui/                           # React 19 + Vite dashboard
-├── plots/                            # Visualization outputs
+├── paper/
+│   ├── paper.qmd                      # Quarto manuscript
+│   ├── references.bib                 # Bibliography
+│   ├── benchmark_results.csv          # Benchmark C-index table
+│   └── figures/                       # Generated figure outputs
+│
+├── app_ui/                            # React 19 + Vite dashboard
+├── plots/                             # Visualization outputs
 │   ├── tSNE/
 │   ├── intervention_ranking/
 │   ├── digital_twin/
 │   ├── latent_space/
 │   ├── streamplots/
 │   └── heatmaps/
-├── models/                           # Frozen weights & trajectory CSVs
-└── data/                             # Curated MHAS datasets
+├── models/                            # Frozen weights & trajectory CSVs
+└── data/                              # Curated MHAS datasets
 ```
 
 ---
@@ -122,7 +125,7 @@ latent_velocity/
 python latent_velocity/engine/prepare_frailty_data.py
 ```
 
-**2. Train the Latent ODE-VAE (single command replaces β-VAE + GP + ODE):**
+**2. Train the Latent ODE-VAE:**
 ```bash
 python latent_velocity/engine/train_latent_ode.py
 # Options: --epochs 150 --lambda_cox 0.15 --target_beta 0.1
