@@ -37,10 +37,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 
-from _paths import (
-    PLOTS_DIR, MODELS_DIR, DATA_DIR,
-    RANKING_DIR, LATENT_DIR,
-)
+from _paths import PLOTS_DIR, MODELS_DIR, DATA_DIR
 
 FIG_DIR = _ROOT / "paper" / "figures"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -448,7 +445,6 @@ def _build_phenotype_table():
     with phenotype, time-to-event, event flag, and Cox HR."""
     from clinical_validation import (
         calculate_velocity_magnitude, compute_frailty_velocity,
-        execute_survival_analysis,
     )
     # execute_survival_analysis returns the fitted Cox model + corr matrix,
     # but also internally computes surv_grouped. We re-implement the minimal
@@ -694,7 +690,6 @@ def fig5_counterfactual(cunicah=7226.0, np_val=10.0):
 
     t        = ranking["t"]
     v_base   = ranking["v_mag_baseline"]
-    auc_base = ranking["auc_baseline"]
     inters   = ranking["ranked_interventions"][:6]
 
     fig, ax = plt.subplots(figsize=(11, 6.0))
@@ -737,6 +732,116 @@ def fig5_counterfactual(cunicah=7226.0, np_val=10.0):
     print(f"  -> {out.relative_to(_ROOT)}")
 
 
+# ─── Figure — conceptual graphical abstract ─────────────────────────────────
+
+def fig_concept():
+    """
+    Conceptual graphical abstract (no data): two patients with an identical
+    baseline Frailty Index are assigned different latent aging velocities by
+    CADENCE, which in turn implies divergent survival. Three beats read left
+    to right, in the same visual language as the architecture schematic.
+    """
+    fig, ax = plt.subplots(figsize=(15, 4.4))
+    ax.set_xlim(0, 16); ax.set_ylim(0, 5); ax.axis("off")
+
+    EDGE = "#33425a"; DARK = "#1b2538"
+    C_PANEL = "#f4f7fb"
+    RED, BLUE = PALETTE["fast"], PALETTE["slow"]
+
+    panels = [(0.25, 4.85), (5.65, 10.25), (11.05, 15.65)]  # (x0, x1) per beat
+
+    def panel(x0, x1, title):
+        ax.add_patch(FancyBboxPatch((x0, 0.55), x1 - x0, 3.95,
+                     boxstyle="round,pad=0.04,rounding_size=0.18",
+                     linewidth=1.3, edgecolor=EDGE, facecolor=C_PANEL))
+        ax.text((x0 + x1) / 2, 4.18, title, ha="center", va="center",
+                fontsize=12, fontweight="bold", color=DARK)
+
+    # Map a normalized (u,v) in [0,1]^2 into the plotting sub-area of a panel.
+    def loc(x0, x1, u, v, pad_x=0.55, top=3.55, bot=1.0):
+        return (x0 + pad_x + u * (x1 - x0 - 2 * pad_x), bot + v * (top - bot))
+
+    # ── Beat 1 — same Frailty Index today ────────────────────────────────
+    x0, x1 = panels[0]
+    panel(x0, x1, "1. Same frailty index today")
+    bar_l, bar_r = loc(x0, x1, 0.0, 0.18)[0], loc(x0, x1, 1.0, 0.18)[0]
+    bar_y = loc(x0, x1, 0.0, 0.18)[1]
+    ax.plot([bar_l, bar_r], [bar_y, bar_y], color="#9aa6b5", linewidth=6,
+            solid_capstyle="round", zorder=1)
+    mark_x = bar_l + 0.42 * (bar_r - bar_l)
+    for dy, col in [(0.55, RED), (-0.0, BLUE)]:
+        ax.scatter([mark_x], [bar_y + 0.6 + dy], s=190, color=col,
+                   edgecolor="white", linewidth=1.4, zorder=3)
+    ax.plot([mark_x, mark_x], [bar_y, bar_y + 1.2], color="#9aa6b5",
+            linewidth=1.0, linestyle=":", zorder=2)
+    ax.text((x0 + x1) / 2, bar_y - 0.45, "Frailty Index", ha="center",
+            va="center", fontsize=9.5, color="#555")
+    ax.text((x0 + x1) / 2, loc(x0, x1, 0.5, 0.92)[1],
+            "Two patients,\nidentical score", ha="center", va="center",
+            fontsize=10.5, color=DARK)
+
+    # ── Beat 2 — CADENCE infers latent velocity ──────────────────────────
+    # Same direction, different magnitude: the Fast Ager's velocity vector is
+    # long; the Slow Ager's is a short, parallel vector (smaller ||v||).
+    x0, x1 = panels[1]
+    panel(x0, x1, "2. CADENCE infers aging velocity")
+    O = np.array(loc(x0, x1, 0.12, 0.20))
+    F = np.array(loc(x0, x1, 0.90, 0.86))          # fast tip (long vector)
+    d = F - O
+    perp = np.array([-d[1], d[0]]); perp /= (np.hypot(*perp) + 1e-9)
+    off = 0.18                                       # small parallel separation
+    arrows = [
+        (O + 0.5 * off * perp, F + 0.5 * off * perp, RED, "fast"),
+        (O - 0.5 * off * perp, O - 0.5 * off * perp + 0.45 * d, BLUE, "slow"),
+    ]
+    for st, en, col, lab in arrows:
+        ax.add_patch(FancyArrowPatch(tuple(st), tuple(en), arrowstyle="-|>",
+                     mutation_scale=20, linewidth=3.0, color=col, zorder=3))
+        ax.text(en[0] + 0.08, en[1], lab, va="center", ha="left",
+                fontsize=10.5, color=col, fontweight="bold")
+    ax.scatter([O[0]], [O[1]], s=120, color=DARK, zorder=4)
+    ax.text((x0 + x1) / 2, loc(x0, x1, 0.5, 0.0)[1] - 0.3,
+            r"aging velocity $\|v\|_2$  (longer = faster)",
+            ha="center", va="center", fontsize=10, color=DARK)
+        
+
+    # ── Beat 3 — divergent survival ──────────────────────────────────────
+    x0, x1 = panels[2]
+    panel(x0, x1, "3. Divergent survival")
+    tt = np.linspace(0, 1, 120)
+    for decay, col in [(2.6, RED), (0.35, BLUE)]:
+        s = np.exp(-decay * tt)
+        xs = [loc(x0, x1, u, 0.0)[0] for u in tt]
+        ys = [loc(x0, x1, 0.0, sv)[1] for sv in s]
+        ax.plot(xs, ys, color=col, linewidth=3.0, zorder=3)
+    ax.plot([loc(x0, x1, 0, 0)[0]] * 2,
+            [loc(x0, x1, 0, 0)[1], loc(x0, x1, 0, 1)[1]],
+            color="#9aa6b5", linewidth=1.0)
+    ax.plot([loc(x0, x1, 0, 0)[0], loc(x0, x1, 1, 0)[0]],
+            [loc(x0, x1, 0, 0)[1]] * 2, color="#9aa6b5", linewidth=1.0)
+    ax.text(loc(x0, x1, 0.0, 0.5)[0] - 0.12, loc(x0, x1, 0, 0.5)[1],
+            "survival", rotation=90, ha="right", va="center",
+            fontsize=9.5, color="#555")
+    ax.text(loc(x0, x1, 0.5, 0.0)[0], loc(x0, x1, 0, 0)[1] - 0.42,
+            "follow-up time", ha="center", va="center",
+            fontsize=9.5, color="#555")
+    ax.text(loc(x0, x1, 0.62, 0.78)[0], loc(x0, x1, 0, 0.78)[1],
+            "HR = 4.77", ha="center", va="center", fontsize=11,
+            fontweight="bold", color=DARK,
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                      edgecolor="#999"))
+
+    # ── Connectors between beats ─────────────────────────────────────────
+    for left, right in [(panels[0][1], panels[1][0]), (panels[1][1], panels[2][0])]:
+        ax.add_patch(FancyArrowPatch((left + 0.02, 2.5), (right - 0.02, 2.5),
+                     arrowstyle="-|>", mutation_scale=18, linewidth=1.8,
+                     color=EDGE))
+
+    out = FIG_DIR / "fig_concept.png"
+    plt.savefig(out); plt.close()
+    print(f"  -> {out.relative_to(_ROOT)}")
+
+
 # ─── Driver ─────────────────────────────────────────────────────────────────
 
 FIGURES = {
@@ -745,6 +850,7 @@ FIGURES = {
     3: fig3_velocity_heatmap,
     4: fig4_umap_composite,
     5: fig5_counterfactual,
+    7: fig_concept,
 }
 
 

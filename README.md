@@ -7,19 +7,19 @@ CADENCE is a diagnostic framework for measuring the instantaneous velocity of bi
 
 Current clinical models track aging through discrete, irregular snapshots (like the Frailty Index). They can tell you how frail a patient is *today*, but struggle to measure *how fast* that patient is declining.
 
-CADENCE is built on the premise that aging is not a state — it is a velocity. To predict mortality and biological collapse, we must calculate the mathematical derivative of a patient's health over time.
+CADENCE is built on the premise that aging is not a state but a velocity. To predict mortality and biological collapse, we must calculate the mathematical derivative of a patient's health over time.
 
-CADENCE achieves this through a single model — the **Latent ODE-VAE**:
+CADENCE achieves this through a single model, the **Latent ODE-VAE**:
 
-1. **Sequence Encoding** — A backward GRU (RecognitionRNN) reads the patient's full observation history `{(x_t, t)}` across irregular MHAS survey waves, producing a posterior distribution `q(z₀ | x)` over their initial latent state.
+1. **Sequence Encoding.** A backward GRU (RecognitionRNN) reads the patient's full observation history `{(x_t, t)}` across irregular MHAS survey waves, producing a posterior distribution `q(z₀ | x)` over their initial latent state.
 
-2. **Continuous Dynamics** — A Neural ODE integrates the latent state forward in time: `dz/dt = f_θ(z, u)`, where `u` is a 7D lifestyle control vector. This replaces the separate GP interpolation step — velocity is the model's native output.
+2. **Continuous Dynamics.** A Neural ODE integrates the latent state forward in time: `dz/dt = f_θ(z, u)`, where `u` is a 7D lifestyle control vector. This replaces the separate GP interpolation step, so velocity is the model's native output.
 
-3. **Reconstruction** — A decoder maps `z(t)` back to the 34-dimensional clinical deficit space at each observed wave, supervised by a weighted ELBO loss.
+3. **Reconstruction.** A decoder maps `z(t)` back to the 34-dimensional clinical deficit space at each observed wave, supervised by a weighted ELBO loss.
 
-4. **Survival Supervision** — A dedicated RiskHead MLP learns to predict mortality risk from `μ`, trained with a Cox partial-likelihood loss. This keeps the latent geometry organized around clinical state rather than mortality norm, which is critical for faithful counterfactual simulation.
+4. **Survival Supervision.** A dedicated RiskHead MLP learns to predict mortality risk from `μ`, trained with a Cox partial-likelihood loss. This keeps the latent geometry organized around clinical state rather than mortality norm, which is critical for faithful counterfactual simulation.
 
-5. **Digital Twin** — Given a patient's encoded `z₀` and any counterfactual control `u'(t)`, the same ODE simulates an alternate biological trajectory. Interventions are ranked by 5-year AUC velocity reduction.
+5. **Digital Twin.** Given a patient's encoded `z₀` and any counterfactual control `u'(t)`, the same ODE simulates an alternate biological trajectory. Interventions are ranked by 5-year AUC velocity reduction.
 
 ## Visual Highlights
 
@@ -63,13 +63,13 @@ Reads raw MHAS `.sav` survey files and encodes 36 clinical deficits across 5 dom
 ### 2. Latent ODE-VAE (`engine/train_latent_ode.py`)
 Trains the joint model:
 - **RecognitionRNN**: backward masked GRU encoding irregular observation sequences → `z₀` posterior
-- **LatentODEFunc**: `dz/dt = f_θ(z, u)` — MLP with SiLU activations
+- **LatentODEFunc**: `dz/dt = f_θ(z, u)`, an MLP with SiLU activations
 - **Decoder**: `z(t)` → 34D deficit reconstruction (inverse-variance feature weighting)
 - **RiskHead**: `μ → scalar risk` for Cox partial-likelihood supervision
 - **β-annealing**: KL weight ramps from 0 → β over epochs 20–80 with per-dim free bits
 
 ### 3. Velocity Extraction (`engine/extract_latent_ode_velocity.py`)
-Encodes each patient's full sequence → `z₀` distribution, then integrates the ODE on a dense time grid using 30 MC samples to propagate posterior uncertainty. Outputs `latent_velocity_trajectory_128.csv` — the velocity dataset consumed by `clinical_validation.py` and `benchmark.py`.
+Encodes each patient's full sequence → `z₀` distribution, then integrates the ODE on a dense time grid using 30 MC samples to propagate posterior uncertainty. Outputs `latent_velocity_trajectory_128.csv`, the velocity dataset consumed by `clinical_validation.py` and `benchmark.py`.
 
 ### 4. Digital Twin Simulation (`ode-digitaltwin/digital_twin.py`)
 Auto-detects and loads the Latent ODE-VAE. Uses full-sequence encoding for `z₀`, then simulates counterfactual control trajectories with biological washout. Ghost Twin Guardrail (Mahalanobis distance) flags OOD predictions.
