@@ -1,31 +1,87 @@
 # CADENCE: Module Overview
 
-This directory contains the core implementation of the CADENCE project. The architecture is split into two primary functional layers: the **Foundation Engine** and the **Longitudinal Dynamics Engine**.
+This directory contains the full implementation of CADENCE. The system is built around a single unified **Latent ODE-VAE** trained end-to-end — there is no separate VAE pretraining or GP smoothing step.
 
-## 📂 Subdirectories
+## Architecture at a Glance
 
-### 1. [⚙️ engine/](engine/)
-The **Foundation Engine** handles the mapping of clinical snapshots into the latent manifold and the initial extraction of individual velocities.
-- **Role**: Data preprocessing, $\beta$-VAE training, Gaussian Process smoothing, and ground-truth clinical validation.
-- **Key Resources**: [Engine Technical Documentation](engine/README.md)
+```
+MHAS visits {(x_t, s, t)}
+        │
+        ▼
+  RecognitionRNN          ← backward masked GRU; handles irregular spacing
+  (37D input per wave)
+        │
+        ▼ q(z₀ | x) = N(μ, σ²) ∈ R⁸
+        │
+        ▼
+  LatentODEFunc           ← dz/dt = f_θ(z, 10u), 4-layer MLP with SiLU
+  (RK4 integration)
+        │
+        ├─────────────────────────────────────┐
+        ▼                                     ▼
+  Decoder g_φ                          RiskHead r_ψ
+  z(t) → x̂(t) ∈ [0,1]³⁴              μ → scalar Cox risk
+  (reconstruction)                     (survival supervision)
+        │
+        ▼
+  Velocity v(t) = f_θ(z(t), 10u)      ← ODE right-hand side; native output
+```
 
-### 2. [🤖 ode-digitaltwin/](ode-digitaltwin/)
-The **Longitudinal Dynamics Engine** implements the predictive and counterfactual features of CADENCE using Neural ODEs.
-- **Role**: Learning the continuous vector field, simulating clinical interventions (Digital Twins), and ranking recommended treatments.
-- **Key Resources**: [Digital Twin Technical Documentation](ode-digitaltwin/README.md)
+The joint training objective is ELBO + Cox partial-likelihood:
 
-### 3. [📊 plots/](plots/)
-Categorized visualization suite for interpreting manifold flow and patient outcomes.
-- Includes subfolders for `tSNE`, `intervention_ranking`, `digital_twin`, `latent_space`, `streamplots`, and `gp_trajectories`.
+```
+L = L_recon  +  β(e) · L_KL  +  λ_cox · L_Cox
+```
 
-### 4. [🧠 models/](models/)
-Storage for trained network weights (`beta_vae_model.pth`, `neural_ode_model.pth`) and high-resolution trajectory datasets.
+with β annealed 0 → 0.1 over epochs 20–80, per-dimension free bits (δ = 0.5 nats), and λ_cox = 0.15.
 
-### 5. [💾 data/](data/)
-Curated datasets, including the fractional Frailty Index matrix used for training.
+## Subdirectories
+
+### `engine/`
+
+End-to-end pipeline from raw MHAS data to trained model and validation results.
+
+| Script | Role |
+|---|---|
+| `prepare_frailty_data.py` | MHAS preprocessing → `frailty_index_data.csv` (34 deficits, MICE imputation) |
+| `train_latent_ode.py` | Train the unified Latent ODE-VAE |
+| `extract_latent_ode_velocity.py` | 30-sample MC ODE integration → dense velocity trajectories |
+| `clinical_validation.py` | Cox PH, LMM, Kaplan–Meier curves, velocity-domain heatmap |
+| `benchmark.py` | B1–B4 vs CADENCE Harrell C-index table |
+| `server.py` | FastAPI backend (per-patient inference, Digital Twin, LLM action plans) |
+
+### `ode-digitaltwin/`
+
+Counterfactual simulation module.
+
+| Script | Role |
+|---|---|
+| `digital_twin.py` | Loads the trained Latent ODE-VAE, simulates control trajectories with biological washout, ranks interventions by 5-year AUC velocity reduction. Includes Ghost Twin Guardrail (Mahalanobis distance, threshold D_M > 3.0). |
+
+### `app_ui/`
+
+React 19 + Vite dashboard. Calls the FastAPI backend for per-patient inference and renders intervention trajectories, the intervention ranking bar chart, and an LLM-generated action plan.
+
+### `models/`
+
+Frozen model weights and trajectory CSVs (not committed). Expected files:
+- `latent_ode_model.pt` — trained Latent ODE-VAE
+- `latent_velocity_trajectory_128.csv` — MC velocity dataset
+
+### `data/`
+
+Curated MHAS datasets. Key file: `frailty_index_data.csv`.
+
+### `plots/`
+
+Visualization outputs organized by type: `tSNE/`, `intervention_ranking/`, `digital_twin/`, `latent_space/`, `streamplots/`, `heatmaps/`.
+
+### `paper/`
+
+Quarto manuscript (`paper_jbi.qmd`), bibliography, and generated figures.
 
 ---
 
-## 🔗 Navigation
-- **Top-Level**: See the main [Project README](../README.md) for clinical context and installation.
-- **Mathematics**: Consult the READMEs within `engine/` and `ode-digitaltwin/` for detailed formulations.
+## Navigation
+
+- **Top-level**: See the main [Project README](../README.md) for clinical context, installation, and usage commands.

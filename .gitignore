@@ -46,3 +46,11 @@ latent_velocity/plots/gp_trajectories/
 # Claude Code
 .claude/
 CLAUDE.md
+
+*.docx
+*.pdf
+*.qmd
+*.tex
+*.tiff
+somib/
+paper/

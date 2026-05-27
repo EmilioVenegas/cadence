@@ -44,6 +44,7 @@ Correlation heatmap between Latent ODE-VAE velocity components and empirical dom
 
 | Metric | Value |
 |---|---|
+| Harrell C-index (CADENCE vs 4 baselines) | **0.865** [0.859–0.872] |
 | Cox Hazard Ratio (Fast vs Slow Ager) | **4.77** (p < 0.001) |
 | MC Uncertainty HR (mean_unc_z) | **1.93** (p < 0.001) |
 | Latent dims (no posterior collapse) | **8 / 8** |
@@ -58,7 +59,7 @@ The **4.77× mortality hazard ratio** between Fast and Slow Ager phenotypes vali
 *For mathematical detail, see the [Engine README](latent_velocity/engine/README.md) and the [Digital Twin README](latent_velocity/ode-digitaltwin/README.md).*
 
 ### 1. Data Preparation (`engine/prepare_frailty_data.py`)
-Reads raw MHAS `.sav` survey files and encodes 36 clinical deficits across 5 domains (comorbidities, ADLs, mental health, cognition, biometrics) with MICE imputation. Outputs `data/frailty_index_data.csv`.
+Reads raw MHAS `.sav` survey files and encodes 34 clinical deficits across 5 domains (comorbidities, ADLs, mental health, cognition, biometrics) with MICE imputation. Outputs `data/frailty_index_data.csv`.
 
 ### 2. Latent ODE-VAE (`engine/train_latent_ode.py`)
 Trains the joint model:

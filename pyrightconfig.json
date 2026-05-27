@@ -1,0 +1,10 @@
+{
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__"
+  ],
+  "extraPaths": [
+    "latent_velocity/engine",
+    "latent_velocity/ode-digitaltwin"
+  ]
+}

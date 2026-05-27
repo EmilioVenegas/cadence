@@ -342,6 +342,7 @@ def _run_ranking(z0, u_baseline, df_raw_csv, model, ode_func, ckpt, device,
 
         v_mag_twin   = _simulate_single_twin(ode_func, z0, u_baseline, u_twin, t_span, washout_k)
         auc_twin     = np.trapz(v_mag_twin, t_np)
+        # pyrefly: ignore [unsupported-operation]
         reduction_pct = (auc_baseline - auc_twin) / auc_baseline * 100 if auc_baseline > 0 else 0.0
 
         results.append({

@@ -182,8 +182,8 @@ def fig1_architecture():
                 arrowstyle="-|>", mutation_scale=9,
                 linewidth=0.9, color=EDGE))
 
-    ax.text(4.75, 5.25, r"$h_t = m_t\,\mathrm{GRU}([x_t\|t],\,h_{t+1}) + (1-m_t)\,h_{t+1}$",
-            ha="center", va="center", fontsize=8.6, color=DARK)
+    ax.text(4.75, 5.25, r"$h_t = m_t\,\mathrm{GRU}([x_t\|s\|t],\,h_{t+1}) + (1-m_t)\,h_{t+1}$",
+            ha="center", va="center", fontsize=7.9, color=DARK)
     ax.text(4.75, 4.65, "masked update skips\nunobserved waves",
             ha="center", va="center", fontsize=8.4, style="italic", color="#555")
 
@@ -359,7 +359,7 @@ def fig1_architecture():
                                 linewidth=0.9, edgecolor=EDGE, facecolor=C_VEL))
     ax.text(14.4, 3.88, r"Velocity  $v(t)$", ha="center", va="center",
             fontsize=10.0, fontweight="medium", color=DARK)
-    ax.text(14.4, 3.43, r"$v(t)=f_{\theta}(z(t),u)$",
+    ax.text(14.4, 3.43, r"$v(t)=f_{\theta}(z(t),10u)$",
             ha="center", va="center", fontsize=8.8, color=DARK)
     ax.text(14.4, 3.06, r"inference-time output",
             ha="center", va="bottom", fontsize=7.6, style="italic", color="#1c5a3a")
@@ -402,20 +402,22 @@ def fig1_architecture():
             r" \;+\; \lambda_{\mathrm{cox}}\,\mathcal{L}_{\mathrm{Cox}}$",
             ha="center", va="center", fontsize=11.0, color=DARK)
 
-    # Three sub-cards
+    # Three sub-cards.  The last tuple element is the formula font size: the
+    # Cox term is the longest, so it is rendered slightly smaller to fit the
+    # 1/N_ev normalising factor inside its card.
     card_y, card_h = 0.20, 0.92
     sub_cards = [
         (0.45, 4.85, "#7a5230", r"Reconstruction $\mathcal{L}_{\mathrm{recon}}$",
          r"$\mathrm{MSE}_w(\hat{x}_t, x_t)$  on observed waves",
-         r"inverse-variance weights $w_j$,  $D{=}34$"),
+         r"inverse-variance weights $w_j$,  $D{=}34$", 8.8),
         (5.55, 4.85, "#264a73", r"KL with free bits  $\beta(e)\,\mathcal{L}_{\mathrm{KL}}$",
          r"$\sum_k \max(\delta,\,\mathrm{KL}_k)$",
-         r"free bits $\delta{=}0.5$ nats,  $\beta$: 20$\to$80 ep,  $\beta_{\max}{=}0.1$"),
+         r"free bits $\delta{=}0.5$ nats,  $\beta$: 20$\to$80 ep,  $\beta_{\max}{=}0.1$", 8.8),
         (10.65, 4.85, "#7a4248", r"Cox  $\lambda_{\mathrm{cox}}\,\mathcal{L}_{\mathrm{Cox}}$",
-         r"$-\sum_{i:\mathrm{ev}_i=1}\,(r_i - \log\!\sum_{j:t_j\geq t_i} e^{r_j})$",
-         r"event weight $\lambda_{\mathrm{cox}}{=}0.15$,  risk $r{=}r_\psi(\mu)$"),
+         r"$-\frac{1}{N_{\mathrm{ev}}}\sum_{i:\mathrm{ev}_i=1}(r_i - \log\!\sum_{j:t_j\geq t_i} e^{r_j})$",
+         r"event weight $\lambda_{\mathrm{cox}}{=}0.15$,  risk $r{=}r_\psi(\mu)$", 8.0),
     ]
-    for (x, w, col, hdr, formula, settings) in sub_cards:
+    for (x, w, col, hdr, formula, settings, f_size) in sub_cards:
         ax.add_patch(FancyBboxPatch((x, card_y), w, card_h,
                                     boxstyle="round,pad=0.02,rounding_size=0.07",
                                     linewidth=0.9, edgecolor=col, facecolor="white"))
@@ -423,7 +425,7 @@ def fig1_architecture():
                 ha="center", va="center", fontsize=9.0,
                 fontweight="bold", color=col)
         ax.text(x + w/2, card_y + card_h - 0.46, formula,
-                ha="center", va="center", fontsize=8.8, color=DARK)
+                ha="center", va="center", fontsize=f_size, color=DARK)
         ax.text(x + w/2, card_y + 0.15, settings,
                 ha="center", va="center", fontsize=8.0,
                 style="italic", color="#444")
@@ -443,6 +445,7 @@ def fig1_architecture():
 def _build_phenotype_table():
     """Run the validation pipeline far enough to produce a per-patient table
     with phenotype, time-to-event, event flag, and Cox HR."""
+    # pyrefly: ignore [missing-import]
     from clinical_validation import (
         calculate_velocity_magnitude, compute_frailty_velocity,
     )
@@ -587,6 +590,7 @@ def fig4_umap_composite():
         print("  ! umap-learn not installed; skipping Fig 4")
         return
 
+    # pyrefly: ignore [missing-import]
     from train_latent_ode import (
         LatentODE, LatentODEDataset, MHAS_WAVES, T_MAX, LATENT_DIM,
     )
@@ -673,6 +677,7 @@ def fig4_umap_composite():
 # ─── Figure 5 — Counterfactual ──────────────────────────────────────────────
 
 def fig5_counterfactual(cunicah=7226.0, np_val=10.0):
+    # pyrefly: ignore [missing-import]
     from digital_twin import rank_interventions
 
     ranking = rank_interventions(cunicah=cunicah, np_val=np_val)
