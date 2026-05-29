@@ -15,6 +15,7 @@ Usage:
 """
 
 import argparse
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -204,8 +205,14 @@ class LatentODEDataset(Dataset):
     """
     def __init__(self, csv_path, wave_tolerance=1.5,
                  edad_mean=None, edad_std=None,
-                 edu_mean=None,  edu_std=None):
+                 edu_mean=None,  edu_std=None,
+                 include_keys=None):
+        """
+        include_keys: optional iterable of (cunicah, np) tuples. If given, only
+        these patients are kept (used by CV training to hold out a fold).
+        """
         df = pd.read_csv(csv_path)
+        include_set = set(map(tuple, include_keys)) if include_keys is not None else None
         df['t'] = df['a_o_ent'] - 2001
 
         if 'social_isolation' not in df.columns:
@@ -251,6 +258,8 @@ class LatentODEDataset(Dataset):
         self.samples = []
 
         for (cunicah, np_val), grp in df.groupby(['cunicah', 'np']):
+            if include_set is not None and (cunicah, np_val) not in include_set:
+                continue
             grp = grp.sort_values('t')
 
             x_grid = np.zeros((N_WAVES, n_def + n_static), dtype=np.float32)
@@ -342,16 +351,47 @@ def cox_partial_loss(risk_scores, tte, ev):
 
 # ─── Training ───────────────────────────────────────────────────────────────
 
+def _save_ckpt(model_path, model, optimizer, scheduler, dataset, history,
+               epochs_done, hparams):
+    """
+    Atomically persist a resumable checkpoint.
+
+    Writes to a temp file then os.replace()s it onto model_path, so an
+    interruption mid-write can never corrupt an existing checkpoint.
+    `epochs_done` is the number of fully completed epochs (the loop resumes
+    from this index). Optimizer/scheduler state are included so resumption is
+    bit-for-bit faithful; downstream loaders that only read 'model_state' and
+    the normalisation stats simply ignore the extra keys.
+    """
+    ckpt = {
+        'model_state':     model.state_dict(),
+        'optimizer_state': optimizer.state_dict(),
+        'scheduler_state': scheduler.state_dict(),
+        'epochs_done':     epochs_done,
+        'edad_mean':       dataset.edad_mean,
+        'edad_std':        dataset.edad_std,
+        'edu_mean':        dataset.edu_mean,
+        'edu_std':         dataset.edu_std,
+        'history':         history,
+        'hparams':         hparams,
+    }
+    tmp_path = model_path + '.tmp'
+    torch.save(ckpt, tmp_path)
+    os.replace(tmp_path, model_path)
+
+
 def train(csv_path=None, model_path=None, epochs=150, lr=3e-4,
-          batch_size=256, target_beta=0.1, lambda_cox=0.15):
+          batch_size=256, target_beta=0.1, lambda_cox=0.15,
+          include_keys=None, tag=None, resume=True, ckpt_every=10):
     if csv_path   is None: csv_path   = str(DATA_DIR   / 'frailty_index_data.csv')
     if model_path is None: model_path = str(MODELS_DIR / 'latent_ode_model.pth')
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Latent ODE-VAE | Device: {device} | Epochs: {epochs} | "
+    tag_str = f" | {tag}" if tag else ""
+    print(f"Latent ODE-VAE{tag_str} | Device: {device} | Epochs: {epochs} | "
           f"β={target_beta} | λ_cox={lambda_cox}")
 
-    dataset = LatentODEDataset(csv_path)
+    dataset = LatentODEDataset(csv_path, include_keys=include_keys)
     loader  = DataLoader(dataset, batch_size=batch_size, shuffle=True,
                          num_workers=0, drop_last=True)
 
@@ -374,92 +414,171 @@ def train(csv_path=None, model_path=None, epochs=150, lr=3e-4,
 
     anneal_start, anneal_end = 20, 80
 
-    history = {'recon': [], 'kld': [], 'cox': [], 'loss': []}
+    hparams = {'epochs': epochs, 'beta': target_beta,
+               'lambda_cox': lambda_cox, 'lr': lr}
 
-    for epoch in range(epochs):
-        if epoch < anneal_start:
-            beta = 0.0
-        elif epoch < anneal_end:
-            beta = target_beta * (epoch - anneal_start) / (anneal_end - anneal_start)
-        else:
-            beta = target_beta
+    history     = {'recon': [], 'kld': [], 'cox': [], 'loss': []}
+    start_epoch = 0
 
-        model.train()
-        model.ode_func.nfe = 0
-        tot_loss = tot_recon = tot_kld = tot_cox = 0.0
-        n_b = 0
+    # ── Resume from an interrupted run if a checkpoint is present ──
+    if resume and os.path.exists(model_path):
+        try:
+            ckpt = torch.load(model_path, map_location=device)
+            model.load_state_dict(ckpt['model_state'])
+            if 'optimizer_state' in ckpt:
+                optimizer.load_state_dict(ckpt['optimizer_state'])
+            if 'scheduler_state' in ckpt:
+                scheduler.load_state_dict(ckpt['scheduler_state'])
+            history     = ckpt.get('history', history)
+            start_epoch = int(ckpt.get('epochs_done', 0))
+            if start_epoch >= epochs:
+                print(f"Checkpoint at {start_epoch} epochs already meets target "
+                      f"{epochs}; nothing to do. Delete {model_path} to retrain.")
+                return model
+            print(f"Resuming from {model_path} at epoch {start_epoch}/{epochs}.")
+        except Exception as e:                        # noqa: BLE001
+            print(f"Could not resume from {model_path} ({e}); training from scratch.")
+            start_epoch = 0
 
-        for batch in loader:
-            x    = batch['x'].to(device)     # (B, N_WAVES, INPUT_DIM)
-            u    = batch['u'].to(device)     # (B, N_WAVES, CONTROL_DIM)
-            mask = batch['mask'].to(device)  # (B, N_WAVES)
-            tte  = batch['tte'].to(device)   # (B,)
-            ev   = batch['ev'].to(device)    # (B,)
+    epochs_done = start_epoch
+    try:
+        for epoch in range(start_epoch, epochs):
+            if epoch < anneal_start:
+                beta = 0.0
+            elif epoch < anneal_end:
+                beta = target_beta * (epoch - anneal_start) / (anneal_end - anneal_start)
+            else:
+                beta = target_beta
 
-            B = x.size(0)
-            t_norm = t_norm_base.unsqueeze(0).expand(B, -1)  # (B, N_WAVES)
+            model.train()
+            model.ode_func.nfe = 0
+            tot_loss = tot_recon = tot_kld = tot_cox = 0.0
+            n_b = 0
 
-            # First observed wave's control vector as ODE baseline
-            first_wi = mask.float().argmax(dim=1)            # (B,)
-            u0 = u[torch.arange(B), first_wi, :]             # (B, 7)
+            for batch in loader:
+                x    = batch['x'].to(device)     # (B, N_WAVES, INPUT_DIM)
+                u    = batch['u'].to(device)     # (B, N_WAVES, CONTROL_DIM)
+                mask = batch['mask'].to(device)  # (B, N_WAVES)
+                tte  = batch['tte'].to(device)   # (B,)
+                ev   = batch['ev'].to(device)    # (B,)
 
-            x_deficits = x[:, :, :len(DEFICIT_COLS)]         # (B, T, 34)
+                B = x.size(0)
+                t_norm = t_norm_base.unsqueeze(0).expand(B, -1)  # (B, N_WAVES)
 
-            optimizer.zero_grad()
-            x_hat, mu, logvar, _ = model(x, t_norm, mask, t_grid, u0)
+                # First observed wave's control vector as ODE baseline
+                first_wi = mask.float().argmax(dim=1)            # (B,)
+                u0 = u[torch.arange(B), first_wi, :]             # (B, 7)
 
-            loss_elbo, recon, kld = elbo_loss(
-                x_hat, x_deficits, mask, mu, logvar, feat_weights, beta)
+                x_deficits = x[:, :, :len(DEFICIT_COLS)]         # (B, T, 34)
 
-            loss_cox = torch.tensor(0.0, device=device)
-            if lambda_cox > 0.0 and ev.sum() > 0:
-                risk_scores = model.risk_head(mu)
-                loss_cox = cox_partial_loss(risk_scores, tte, ev)
+                optimizer.zero_grad()
+                x_hat, mu, logvar, _ = model(x, t_norm, mask, t_grid, u0)
 
-            loss = loss_elbo + lambda_cox * loss_cox
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
+                loss_elbo, recon, kld = elbo_loss(
+                    x_hat, x_deficits, mask, mu, logvar, feat_weights, beta)
 
-            tot_loss  += loss.item()
-            tot_recon += recon.item()
-            tot_kld   += kld.item()
-            tot_cox   += loss_cox.item()
-            n_b       += 1
+                loss_cox = torch.tensor(0.0, device=device)
+                if lambda_cox > 0.0 and ev.sum() > 0:
+                    risk_scores = model.risk_head(mu)
+                    loss_cox = cox_partial_loss(risk_scores, tte, ev)
 
-        avg_recon = tot_recon / n_b
-        avg_kld   = tot_kld   / n_b
-        avg_cox   = tot_cox   / n_b
-        avg_loss  = tot_loss  / n_b
-        scheduler.step(avg_recon)
+                loss = loss_elbo + lambda_cox * loss_cox
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
 
-        history['recon'].append(avg_recon)
-        history['kld'].append(avg_kld)
-        history['cox'].append(avg_cox)
-        history['loss'].append(avg_loss)
+                tot_loss  += loss.item()
+                tot_recon += recon.item()
+                tot_kld   += kld.item()
+                tot_cox   += loss_cox.item()
+                n_b       += 1
 
-        if (epoch + 1) % 10 == 0 or epoch == 0:
-            print(f"[{epoch+1:3d}/{epochs}] β={beta:.3f} "
-                  f"| Loss={avg_loss:.4f} "
-                  f"| Recon={avg_recon:.4f} "
-                  f"| KLD={avg_kld:.4f} "
-                  f"| Cox={avg_cox:.4f} "
-                  f"| NFE={model.ode_func.nfe} "
-                  f"| LR={optimizer.param_groups[0]['lr']:.1e}")
+            avg_recon = tot_recon / n_b
+            avg_kld   = tot_kld   / n_b
+            avg_cox   = tot_cox   / n_b
+            avg_loss  = tot_loss  / n_b
+            scheduler.step(avg_recon)
 
-    ckpt = {
-        'model_state': model.state_dict(),
-        'edad_mean':   dataset.edad_mean,
-        'edad_std':    dataset.edad_std,
-        'edu_mean':    dataset.edu_mean,
-        'edu_std':     dataset.edu_std,
-        'history':     history,
-        'hparams':     {'epochs': epochs, 'beta': target_beta,
-                        'lambda_cox': lambda_cox, 'lr': lr},
-    }
-    torch.save(ckpt, model_path)
+            history['recon'].append(avg_recon)
+            history['kld'].append(avg_kld)
+            history['cox'].append(avg_cox)
+            history['loss'].append(avg_loss)
+
+            epochs_done = epoch + 1
+
+            if (epoch + 1) % 10 == 0 or epoch == 0:
+                print(f"[{epoch+1:3d}/{epochs}] β={beta:.3f} "
+                      f"| Loss={avg_loss:.4f} "
+                      f"| Recon={avg_recon:.4f} "
+                      f"| KLD={avg_kld:.4f} "
+                      f"| Cox={avg_cox:.4f} "
+                      f"| NFE={model.ode_func.nfe} "
+                      f"| LR={optimizer.param_groups[0]['lr']:.1e}")
+
+            # Periodic interrupt-safe checkpoint (skipped for the final epoch,
+            # which is persisted unconditionally below).
+            if ckpt_every > 0 and epochs_done % ckpt_every == 0 and epochs_done < epochs:
+                _save_ckpt(model_path, model, optimizer, scheduler, dataset,
+                           history, epochs_done, hparams)
+    except KeyboardInterrupt:
+        print(f"\nInterrupted at epoch {epochs_done}/{epochs} — saving progress…")
+        _save_ckpt(model_path, model, optimizer, scheduler, dataset,
+                   history, epochs_done, hparams)
+        print(f"Progress saved → {model_path}. Re-run the same command to resume.")
+        raise SystemExit(130)
+
+    _save_ckpt(model_path, model, optimizer, scheduler, dataset,
+               history, epochs_done, hparams)
     print(f"\nLatent ODE-VAE saved → {model_path}")
     return model
+
+
+def _patient_keys(csv_path: str):
+    """Return a sorted list of unique (cunicah, np) keys for splitting."""
+    df = pd.read_csv(csv_path, usecols=['cunicah', 'np'])
+    keys = df.drop_duplicates(['cunicah', 'np']).sort_values(['cunicah', 'np'])
+    return list(zip(keys['cunicah'], keys['np']))
+
+
+def run_cv(epochs: int, lr: float, batch_size: int, lambda_cox: float,
+           n_folds: int, seed: int, resume: bool = True, ckpt_every: int = 10):
+    """
+    Patient-level K-fold cross-validation training loop.
+
+    Splits all patient (cunicah, np) keys into K disjoint folds, trains K
+    models (each on the union of K-1 folds), and persists:
+      - latent_ode_model_fold{k}.pth      (one per fold)
+      - fold_assignments.csv              (cunicah, np, fold) for the whole cohort
+
+    The held-out fold for model k is the set with fold == k. Downstream
+    benchmark code uses fold_assignments.csv to assemble out-of-fold predictions.
+    """
+    csv_path = str(DATA_DIR / 'frailty_index_data.csv')
+    keys     = _patient_keys(csv_path)
+    rng      = np.random.default_rng(seed)
+    perm     = rng.permutation(len(keys))
+    fold_id  = np.empty(len(keys), dtype=np.int64)
+    for k in range(n_folds):
+        fold_id[perm[k::n_folds]] = k  # interleaved assignment; balanced sizes
+
+    assignments = pd.DataFrame(
+        {'cunicah': [k[0] for k in keys],
+         'np':      [k[1] for k in keys],
+         'fold':    fold_id}
+    )
+    folds_path = MODELS_DIR / 'fold_assignments.csv'
+    assignments.to_csv(folds_path, index=False)
+    print(f"\nFold assignments written → {folds_path}")
+    print(assignments['fold'].value_counts().sort_index().to_string())
+
+    for k in range(n_folds):
+        train_keys = [keys[i] for i in range(len(keys)) if fold_id[i] != k]
+        model_path = str(MODELS_DIR / f'latent_ode_model_fold{k}.pth')
+        print(f"\n{'=' * 70}\nFold {k+1}/{n_folds} — training on {len(train_keys):,} patients"
+              f", holding out {(fold_id == k).sum():,}\n{'=' * 70}")
+        train(epochs=epochs, lr=lr, batch_size=batch_size, lambda_cox=lambda_cox,
+              model_path=model_path, include_keys=train_keys,
+              tag=f"fold {k+1}/{n_folds}", resume=resume, ckpt_every=ckpt_every)
 
 
 if __name__ == '__main__':
@@ -469,6 +588,22 @@ if __name__ == '__main__':
     ap.add_argument('--batch_size',  type=int,   default=256)
     ap.add_argument('--lambda_cox',  type=float, default=0.1,
                     help='Cox partial-likelihood weight. 0 to disable.')
+    ap.add_argument('--cv',          type=int,   default=0,
+                    help='If >0, run K-fold patient-level CV (saves K checkpoints).')
+    ap.add_argument('--seed',        type=int,   default=42,
+                    help='Seed for fold assignment when --cv is set.')
+    ap.add_argument('--ckpt_every',  type=int,   default=10,
+                    help='Write a resumable checkpoint every N epochs. 0 to '
+                         'only save at the end (still interrupt-safe).')
+    ap.add_argument('--no_resume',   action='store_true',
+                    help='Ignore any existing checkpoint and train from scratch.')
     args = ap.parse_args()
-    train(epochs=args.epochs, lr=args.lr,
-          batch_size=args.batch_size, lambda_cox=args.lambda_cox)
+    resume = not args.no_resume
+    if args.cv and args.cv > 1:
+        run_cv(epochs=args.epochs, lr=args.lr, batch_size=args.batch_size,
+               lambda_cox=args.lambda_cox, n_folds=args.cv, seed=args.seed,
+               resume=resume, ckpt_every=args.ckpt_every)
+    else:
+        train(epochs=args.epochs, lr=args.lr,
+              batch_size=args.batch_size, lambda_cox=args.lambda_cox,
+              resume=resume, ckpt_every=args.ckpt_every)
